@@ -525,7 +525,7 @@ class TestInMemoryFixture:
 class TestDeepNestedConfigOverride:
     """Tests for deep nested config-override paths like journals.work.editor."""
 
-    def test_override_journals_work_editor(self, multi_journal_config, minimal_args):
+    def test_override_journals_work_editor(self, in_memory_config, multi_journal_config, minimal_args):
         """Override deeply nested journals.work.editor setting."""
         multi_journal_config["journals"]["work"] = {
             "journal": "/tmp/work.journal",
@@ -537,14 +537,14 @@ class TestDeepNestedConfigOverride:
 
         assert result_config["journals"]["work"]["editor"] == "code"
 
-    def test_override_journals_personal_linewrap(self, multi_journal_config, minimal_args):
+    def test_override_journals_personal_linewrap(self, in_memory_config, multi_journal_config, minimal_args):
         """Override journals.personal.linewrap setting."""
         minimal_args.config_override = [["journals.personal.linewrap", "120"]]
         result_config = apply_overrides(minimal_args, multi_journal_config.copy())
 
         assert result_config["journals"]["personal"]["linewrap"] == 120
 
-    def test_override_journals_default_encrypt(self, multi_journal_config, minimal_args):
+    def test_override_journals_default_encrypt(self, in_memory_config, multi_journal_config, minimal_args):
         """Override journals.default.encrypt setting."""
         multi_journal_config["journals"]["default"] = {
             "journal": "/tmp/default.journal",
@@ -556,7 +556,7 @@ class TestDeepNestedConfigOverride:
 
         assert result_config["journals"]["default"]["encrypt"] is True
 
-    def test_override_multiple_deep_nested_settings(self, multi_journal_config, minimal_args):
+    def test_override_multiple_deep_nested_settings(self, in_memory_config, multi_journal_config, minimal_args):
         """Override multiple deeply nested settings at once."""
         multi_journal_config["journals"]["work"] = {
             "journal": "/tmp/work.journal",
@@ -575,7 +575,7 @@ class TestDeepNestedConfigOverride:
         assert result_config["journals"]["work"]["encrypt"] is True
         assert result_config["journals"]["personal"]["editor"] == "gedit"
 
-    def test_override_colors_body_deep_nested(self, multi_journal_config, minimal_args):
+    def test_override_colors_body_deep_nested(self, in_memory_config, multi_journal_config, minimal_args):
         """Override nested colors.body setting."""
         multi_journal_config["colors"] = {
             "body": "none",
@@ -590,7 +590,7 @@ class TestDeepNestedConfigOverride:
         assert result_config["colors"]["body"] == "red"
         assert result_config["colors"]["date"] == "black"
 
-    def test_deep_nested_override_preserves_other_journals(self, multi_journal_config, minimal_args):
+    def test_deep_nested_override_preserves_other_journals(self, in_memory_config, multi_journal_config, minimal_args):
         """Deep nested override should not affect other journal configs."""
         multi_journal_config["journals"]["work"] = {
             "journal": "/tmp/work.journal",
@@ -606,7 +606,7 @@ class TestDeepNestedConfigOverride:
         assert result_config["journals"]["default"] == original_default
         assert result_config["journals"]["personal"] == original_personal
 
-    def test_override_deep_nested_via_parse_args(self, multi_journal_config):
+    def test_override_deep_nested_via_parse_args(self, in_memory_config, multi_journal_config):
         """Test deep nested override through actual argument parsing."""
         multi_journal_config["journals"]["work"] = {
             "journal": "/tmp/work.journal",
@@ -622,17 +622,13 @@ class TestDeepNestedConfigOverride:
 class TestEncryptedJournalPassword:
     """Tests for encrypted journal password prompt and decryption failure branches."""
 
-    @pytest.fixture
-    def mock_config(self):
-        """Fixture providing minimal config for encryption tests."""
-        return {"encrypt": True, "journal": "/tmp/test.journal"}
-
-    def test_password_prompt_first_try(self, mock_config):
+    def test_password_prompt_first_try(self, in_memory_config):
         """Test password is prompted on first decryption attempt."""
         from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
         from jrnl.exception import JrnlException
         from jrnl.messages import MsgText
 
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/test.journal"}
         password_prompts = []
         correct_password = "test_password_123"
 
@@ -656,10 +652,11 @@ class TestEncryptedJournalPassword:
                     assert len(password_prompts) >= 3
                     assert MsgText.PasswordMaxTriesExceeded in [msg.text for msg in exc_info.value.messages]
 
-    def test_decrypt_success_with_correct_password(self, mock_config):
+    def test_decrypt_success_with_correct_password(self, in_memory_config):
         """Test successful decryption when correct password is provided."""
         from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
 
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/test.journal"}
         correct_password = "correct_password"
         prompts = []
 
@@ -683,10 +680,11 @@ class TestEncryptedJournalPassword:
                     assert len(prompts) == 1
                     assert prompts[0] is True
 
-    def test_password_retry_after_wrong_password(self, mock_config):
+    def test_password_retry_after_wrong_password(self, in_memory_config):
         """Test password retry logic after wrong password."""
         from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
 
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/test.journal"}
         correct_password = "correct_password"
         password_sequence = iter(["wrong1", "wrong2", correct_password])
         first_try_flags = []
@@ -713,10 +711,12 @@ class TestEncryptedJournalPassword:
                     assert first_try_flags[1] is False
                     assert first_try_flags[2] is False
 
-    def test_max_attempts_exceeded_raises_exception(self, mock_config):
+    def test_max_attempts_exceeded_raises_exception(self, in_memory_config):
         """Test that max password attempts exceeded raises JrnlException."""
         from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
         from jrnl.exception import JrnlException
+
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/test.journal"}
 
         def mock_prompt_password(first_try=True):
             return "wrong_password"
@@ -737,10 +737,11 @@ class TestEncryptedJournalPassword:
 
                     assert encryption._attempts == 3
 
-    def test_decrypt_with_invalid_token(self, mock_config):
+    def test_decrypt_with_invalid_token(self, in_memory_config):
         """Test decryption with invalid token data."""
         from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
 
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/test.journal"}
         encryption = Jrnlv2Encryption(journal_name="test_journal", config=mock_config)
         encryption.check_keyring = False
         encryption.password = "test_password"
@@ -749,10 +750,11 @@ class TestEncryptedJournalPassword:
 
         assert result is None
 
-    def test_keyring_password_used_first(self, mock_config):
+    def test_keyring_password_used_first(self, in_memory_config):
         """Test that keyring password is tried before prompting user."""
         from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
 
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/test.journal"}
         keyring_called = []
         prompt_called = []
         keyring_password = "keyring_password"
@@ -781,10 +783,11 @@ class TestEncryptedJournalPassword:
                     assert keyring_called[0] == "test_journal"
                     assert len(prompt_called) == 0
 
-    def test_skip_keyring_when_disabled(self, mock_config):
+    def test_skip_keyring_when_disabled(self, in_memory_config):
         """Test that keyring is skipped when check_keyring is False."""
         from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
 
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/test.journal"}
         keyring_called = []
         test_password = "test_password"
         prompt_passwords = iter([test_password])
@@ -886,6 +889,8 @@ class TestTempfileMigrationComplete:
             "TestOverrideAndJournalIntegration",
             "TestOutputContentAssertions",
             "TestOverrideRegressionPrevention",
+            "TestDeepNestedConfigOverride",
+            "TestEncryptedJournalPassword",
         ]
 
         with open(__file__, "r") as f:
@@ -905,6 +910,120 @@ class TestTempfileMigrationComplete:
 
         assert len(missing_in_memory) == 0, \
             f"These tests don't use in_memory_config: {', '.join(missing_in_memory)}"
+
+    def test_no_local_mock_config_fixture_in_encrypted_tests(self):
+        """Verify TestEncryptedJournalPassword no longer has local mock_config fixture."""
+        import ast
+
+        with open(__file__, "r") as f:
+            content = f.read()
+
+        tree = ast.parse(content)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "TestEncryptedJournalPassword":
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef):
+                        decorators = [d.id for d in item.decorator_list if hasattr(d, 'id')]
+                        assert "pytest.fixture" not in decorators, \
+                            f"Local fixture {item.name} still exists in TestEncryptedJournalPassword"
+
+
+class TestFixtureIsolationBehavior:
+    """Tests to verify in_memory_config isolation behavior for migrated classes."""
+
+    def test_deep_nested_override_with_isolation(self, in_memory_config, multi_journal_config, minimal_args):
+        """Verify deep nested override works with in_memory_config isolation."""
+        multi_journal_config["journals"]["work"] = {
+            "journal": f"{in_memory_config['home']}/work.journal",
+            "editor": "vim",
+        }
+
+        minimal_args.config_override = [["journals.work.editor", "code"]]
+        result_config = apply_overrides(minimal_args, multi_journal_config.copy())
+
+        assert result_config["journals"]["work"]["editor"] == "code"
+        assert result_config["journals"]["work"]["journal"].startswith("/fake/home")
+
+    def test_encrypted_journal_with_isolation(self, in_memory_config):
+        """Verify encrypted journal tests work with in_memory_config isolation."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/encrypted.journal"}
+        correct_password = "test_password"
+
+        with mock.patch("jrnl.encryption.BasePasswordEncryption.prompt_password", return_value=correct_password):
+            with mock.patch("jrnl.encryption.BasePasswordEncryption.get_keyring_password", return_value=None):
+                with mock.patch("jrnl.encryption.BasePasswordEncryption.create_password", return_value=correct_password):
+                    encryption = Jrnlv2Encryption(journal_name="encrypted_test", config=mock_config)
+                    encryption.check_keyring = False
+
+                    encrypted_data = encryption.encrypt("isolated secret data")
+                    encryption.password = None
+                    encryption._attempts = 0
+
+                    decrypted = encryption.decrypt(encrypted_data)
+
+                    assert decrypted == "isolated secret data"
+                    assert mock_config["journal"].startswith("/fake/home")
+
+    def test_isolation_preserves_env_between_deep_nested_tests(self, in_memory_config):
+        """Verify environment isolation between deep nested config tests."""
+        assert os.environ["HOME"] == "/fake/home/user"
+        from jrnl.path import get_config_path
+        assert get_config_path().startswith("/fake/home")
+
+    def test_isolation_preserves_env_between_encrypted_tests(self, in_memory_config):
+        """Verify environment isolation between encrypted journal tests."""
+        assert os.environ["HOME"] == "/fake/home/user"
+        assert in_memory_config["home"] == "/fake/home/user"
+
+    def test_deep_nested_override_multiple_settings_with_isolation(self, in_memory_config, multi_journal_config, minimal_args):
+        """Verify multiple deep nested overrides work with isolation."""
+        multi_journal_config["journals"]["work"] = {
+            "journal": f"{in_memory_config['home']}/work.journal",
+            "editor": "vim",
+            "encrypt": False,
+        }
+
+        minimal_args.config_override = [
+            ["journals.work.editor", "sublime"],
+            ["journals.work.encrypt", "true"],
+            ["journals.personal.linewrap", "150"],
+        ]
+        result_config = apply_overrides(minimal_args, multi_journal_config.copy())
+
+        assert result_config["journals"]["work"]["editor"] == "sublime"
+        assert result_config["journals"]["work"]["encrypt"] is True
+        assert result_config["journals"]["personal"]["linewrap"] == 150
+        assert result_config["journals"]["work"]["journal"].startswith("/fake/home")
+
+    def test_encrypted_journal_keyring_with_isolation(self, in_memory_config):
+        """Verify encrypted journal keyring behavior with isolation."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+        mock_config = {"encrypt": True, "journal": f"{in_memory_config['home']}/keyring_test.journal"}
+        keyring_password = "keyring_secret"
+        keyring_called = []
+
+        def mock_keyring_pw(journal_name):
+            keyring_called.append(journal_name)
+            return keyring_password
+
+        with mock.patch("jrnl.encryption.BasePasswordEncryption.get_keyring_password", mock_keyring_pw):
+            with mock.patch("jrnl.encryption.BasePasswordEncryption.create_password", return_value=keyring_password):
+                encryption = Jrnlv2Encryption(journal_name="keyring_test", config=mock_config)
+                encryption.check_keyring = True
+
+                encrypted_data = encryption.encrypt("keyring protected data")
+                encryption.password = None
+                encryption._attempts = 0
+
+                decrypted = encryption.decrypt(encrypted_data)
+
+                assert decrypted == "keyring protected data"
+                assert len(keyring_called) >= 1
+                assert mock_config["journal"].startswith("/fake/home")
 
     def test_path_module_no_disk_io(self, in_memory_config):
         """Verify path module returns in-memory paths, not tempfile paths."""
