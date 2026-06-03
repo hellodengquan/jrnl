@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from jrnl import install
 from jrnl import plugins
 from jrnl import time
-from jrnl.args import DEPRECATED_ALIASES
+from jrnl.args import DEPRECATED_COMMAND_ALIASES
 from jrnl.args import ParsedArgs
 from jrnl.commands import postconfig_decrypt
 from jrnl.commands import postconfig_encrypt
@@ -77,10 +77,10 @@ def _dispatch_preconfig(command: str, parsed_args: ParsedArgs):
 
 def _dispatch_postconfig(command: str, ctx: RuntimeContext):
     effective = command
-    if command in DEPRECATED_ALIASES:
-        _, old_alias, new_alias = DEPRECATED_ALIASES[command]
+    if command in DEPRECATED_COMMAND_ALIASES:
+        _, old_alias, new_alias = DEPRECATED_COMMAND_ALIASES[command]
         deprecated_cmd(old_alias, new_alias)
-        effective = DEPRECATED_ALIASES[command][0]
+        effective = DEPRECATED_COMMAND_ALIASES[command][0]
 
     handler = _POSTCONFIG_DISPATCH.get(effective)
     if handler is None:

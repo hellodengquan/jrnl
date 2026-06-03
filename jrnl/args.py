@@ -12,9 +12,16 @@ from jrnl.plugins import util
 
 PRECONFIG_COMMANDS = frozenset({"version", "diagnostic"})
 POSTCONFIG_COMMANDS = frozenset({"list", "encrypt", "decrypt", "import"})
-DEPRECATED_ALIASES = {
+
+DEPRECATED_COMMAND_ALIASES = {
     "list_deprecated": ("list", "-ls", "--list or --ls"),
-    "to_deprecated": ("to", "-to", "--to, or use -until as a synonym"),
+}
+
+DEPRECATED_ARG_ALIASES = {
+    "-to": ("--to", "-until"),
+    "--export": ("--export", "--format"),
+    "-o": ("-o", "--file"),
+    "config_password": ("password config field", "system keychain"),
 }
 
 
@@ -64,12 +71,12 @@ class ParsedArgs:
 
     @property
     def is_postconfig_command(self) -> bool:
-        return self.command in POSTCONFIG_COMMANDS or self.command in DEPRECATED_ALIASES
+        return self.command in POSTCONFIG_COMMANDS or self.command in DEPRECATED_COMMAND_ALIASES
 
     @property
     def effective_command(self) -> str | None:
-        if self.command in DEPRECATED_ALIASES:
-            return DEPRECATED_ALIASES[self.command][0]
+        if self.command in DEPRECATED_COMMAND_ALIASES:
+            return DEPRECATED_COMMAND_ALIASES[self.command][0]
         return self.command
 
 
@@ -132,8 +139,8 @@ def _namespace_to_parsed_args(ns: argparse.Namespace) -> ParsedArgs:
         command = preconfig_cmd
     elif postconfig_cmd is not None:
         command = postconfig_cmd
-        if command in DEPRECATED_ALIASES:
-            used_deprecated_alias = DEPRECATED_ALIASES[command][1]
+        if command in DEPRECATED_COMMAND_ALIASES:
+            used_deprecated_alias = DEPRECATED_COMMAND_ALIASES[command][1]
 
     return ParsedArgs(
         command=command,

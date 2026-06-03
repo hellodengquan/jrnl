@@ -11,16 +11,20 @@ run.
 2. "postconfig" commands require to config to have already been loaded, parsed, and
    scoped before they can be run.
 
-All command functions accept a RuntimeContext, which carries both the parsed CLI
-arguments and the runtime state (config, journal name, etc.).
+All postconfig command functions accept a RuntimeContext, which carries both the parsed
+CLI arguments and the runtime state (config, journal name, etc.). Preconfig commands
+receive only ParsedArgs since no config has been loaded yet.
 
 Also, please note that all (non-builtin) imports should be scoped to each function to
 avoid any possible overhead for these standalone commands.
 """
 
+from __future__ import annotations
+
 import logging
 import platform
 import sys
+from typing import TYPE_CHECKING
 
 from jrnl.config import cmd_requires_valid_journal_name
 from jrnl.exception import JrnlException
@@ -29,8 +33,12 @@ from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.output import print_msg
 
+if TYPE_CHECKING:
+    from jrnl.args import ParsedArgs
+    from jrnl.controller import RuntimeContext
 
-def preconfig_diagnostic(parsed_args) -> None:
+
+def preconfig_diagnostic(parsed_args: ParsedArgs) -> None:
     from jrnl import __title__
     from jrnl import __version__
 
@@ -41,7 +49,7 @@ def preconfig_diagnostic(parsed_args) -> None:
     )
 
 
-def preconfig_version(parsed_args) -> None:
+def preconfig_version(parsed_args: ParsedArgs) -> None:
     import textwrap
 
     from jrnl import __title__
@@ -61,7 +69,7 @@ def preconfig_version(parsed_args) -> None:
     print(output)
 
 
-def postconfig_list(ctx) -> int:
+def postconfig_list(ctx: RuntimeContext) -> int:
     from jrnl.output import list_journals
 
     print(list_journals(ctx.config, ctx.args.export))
@@ -70,7 +78,7 @@ def postconfig_list(ctx) -> int:
 
 
 @cmd_requires_valid_journal_name
-def postconfig_import(ctx) -> int:
+def postconfig_import(ctx: RuntimeContext) -> int:
     from jrnl.journals import open_journal
     from jrnl.plugins import get_importer
 
@@ -93,7 +101,7 @@ def postconfig_import(ctx) -> int:
 
 
 @cmd_requires_valid_journal_name
-def postconfig_encrypt(ctx) -> int:
+def postconfig_encrypt(ctx: RuntimeContext) -> int:
     """
     Encrypt a journal in place, or optionally to a new file
     """
@@ -145,7 +153,7 @@ def postconfig_encrypt(ctx) -> int:
 
 
 @cmd_requires_valid_journal_name
-def postconfig_decrypt(ctx) -> int:
+def postconfig_decrypt(ctx: RuntimeContext) -> int:
     """Decrypts to file. If filename is not set, we encrypt the journal file itself."""
     from jrnl.config import update_config
     from jrnl.install import save_config

@@ -6,6 +6,8 @@ from dataclasses import asdict
 
 import pytest
 
+from jrnl.args import DEPRECATED_ARG_ALIASES
+from jrnl.args import DEPRECATED_COMMAND_ALIASES
 from jrnl.args import parse_args
 from jrnl.config import make_yaml_valid_dict
 
@@ -167,6 +169,47 @@ def test_ls_deprecated():
     assert cli_as_dict("-ls") == expected_args(
         command="list_deprecated", used_deprecated_alias="-ls"
     )
+
+
+class TestDeprecatedCommandAliases:
+    def test_deprecated_command_aliases_table_covers_ls(self):
+        assert "list_deprecated" in DEPRECATED_COMMAND_ALIASES
+        entry = DEPRECATED_COMMAND_ALIASES["list_deprecated"]
+        assert entry[0] == "list"
+        assert entry[1] == "-ls"
+
+    def test_effective_command_maps_deprecated_to_real(self):
+        parsed = parse_args(["-ls"])
+        assert parsed.command == "list_deprecated"
+        assert parsed.effective_command == "list"
+        assert parsed.used_deprecated_alias == "-ls"
+        assert parsed.is_postconfig_command
+
+
+class TestDeprecatedArgAliases:
+    def test_deprecated_arg_aliases_table_has_to(self):
+        assert "-to" in DEPRECATED_ARG_ALIASES
+        assert DEPRECATED_ARG_ALIASES["-to"][1] == "-until"
+
+    def test_deprecated_arg_aliases_table_has_export(self):
+        assert "--export" in DEPRECATED_ARG_ALIASES
+        assert DEPRECATED_ARG_ALIASES["--export"][1] == "--format"
+
+    def test_deprecated_arg_aliases_table_has_o_flag(self):
+        assert "-o" in DEPRECATED_ARG_ALIASES
+        assert DEPRECATED_ARG_ALIASES["-o"][1] == "--file"
+
+    def test_deprecated_arg_aliases_table_has_config_password(self):
+        assert "config_password" in DEPRECATED_ARG_ALIASES
+        assert DEPRECATED_ARG_ALIASES["config_password"][1] == "system keychain"
+
+    def test_to_is_functional_alias_for_until(self):
+        assert cli_as_dict("-to 2020-01-01") == expected_args(end_date="2020-01-01")
+        assert cli_as_dict("-until 2020-01-01") == expected_args(end_date="2020-01-01")
+
+    def test_export_is_functional_alias_for_format(self):
+        assert cli_as_dict("--export json") == expected_args(export="json")
+        assert cli_as_dict("--format json") == expected_args(export="json")
 
 
 def test_on_date_alone():
