@@ -51,12 +51,11 @@ def list_profiles(config: dict) -> str:
 
 def save_profile(
     original_config: dict,
-    config: dict,
     profile_name: str,
     export_format: str | None = None,
     filename: str | None = None,
     template: str | None = None,
-) -> None:
+) -> bool:
     profile = {}
     
     if export_format:
@@ -84,7 +83,7 @@ def save_profile(
             ),
             default=False,
         ):
-            return
+            return False
     
     if EXPORT_PROFILES_KEY not in original_config:
         original_config[EXPORT_PROFILES_KEY] = {}
@@ -93,9 +92,10 @@ def save_profile(
     save_config(original_config)
     
     logging.info(f"Saved export profile '{profile_name}': {profile}")
+    return True
 
 
-def delete_profile(original_config: dict, config: dict, profile_name: str) -> None:
+def delete_profile(original_config: dict, profile_name: str) -> None:
     profiles = get_profiles(original_config)
     if profile_name not in profiles:
         raise JrnlException(

@@ -200,21 +200,29 @@ def postconfig_decrypt(
 def postconfig_save_export_profile(
     args: argparse.Namespace, config: dict, original_config: dict, **_
 ) -> int:
-    save_profile(
-        original_config,
+    saved = save_profile(
         original_config,
         args.save_export_profile,
         export_format=args.export or None,
         filename=args.filename or None,
         template=args.template or None,
     )
-    print_msg(
-        Message(
-            MsgText.ExportProfileSaved,
-            MsgStyle.NORMAL,
-            {"profile_name": args.save_export_profile},
+    if saved:
+        print_msg(
+            Message(
+                MsgText.ExportProfileSaved,
+                MsgStyle.NORMAL,
+                {"profile_name": args.save_export_profile},
+            )
         )
-    )
+    else:
+        print_msg(
+            Message(
+                MsgText.ExportProfileSaveCancelled,
+                MsgStyle.NORMAL,
+                {"profile_name": args.save_export_profile},
+            )
+        )
     return 0
 
 
@@ -222,7 +230,7 @@ def postconfig_delete_export_profile(
     args: argparse.Namespace, config: dict, original_config: dict, **_
 ) -> int:
     profile_name = args.delete_export_profile
-    delete_profile(original_config, original_config, profile_name)
+    delete_profile(original_config, profile_name)
     print_msg(
         Message(
             MsgText.ExportProfileDeleted,
