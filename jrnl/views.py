@@ -3,37 +3,21 @@
 
 import os
 from argparse import Namespace
-from pathlib import Path
 
 import xdg.BaseDirectory
 from ruamel.yaml import YAML
 
+from jrnl.args import get_search_fields
 from jrnl.exception import JrnlException
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
+from jrnl.prompt import yesno
 
 VIEWS_FILE = "views.yaml"
 XDG_RESOURCE = "jrnl"
 
-SEARCH_FIELDS = [
-    "contains",
-    "tagged",
-    "excluded",
-    "exclude_starred",
-    "exclude_tagged",
-    "end_date",
-    "today_in_history",
-    "month",
-    "day",
-    "year",
-    "limit",
-    "on_date",
-    "starred",
-    "start_date",
-    "strict",
-    "text",
-]
+SEARCH_FIELDS = get_search_fields()
 
 
 def get_views_path() -> str:
@@ -68,7 +52,7 @@ def save_views(views: dict) -> None:
         yaml.dump(views, f)
 
 
-def save_view(name: str, args: Namespace) -> None:
+def save_view(name: str, args: Namespace) -> bool:
     views = load_views()
     filters = extract_search_filters(args)
 
@@ -80,8 +64,20 @@ def save_view(name: str, args: Namespace) -> None:
             )
         )
 
+    if name in views:
+        if not yesno(
+            Message(
+                MsgText.OverwriteViewQuestion,
+                MsgStyle.PROMPT,
+                {"name": name},
+            ),
+            default=False,
+        ):
+            return False
+
     views[name] = filters
     save_views(views)
+    return True
 
 
 def delete_view(name: str) -> None:

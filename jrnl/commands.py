@@ -186,14 +186,23 @@ def postconfig_save_view(args: argparse.Namespace, config: dict, **_) -> int:
     """Save current search filters as a named view."""
     from jrnl.views import save_view
 
-    save_view(args.save_view, args)
-    print_msg(
-        Message(
-            MsgText.ViewSaved,
-            MsgStyle.NORMAL,
-            {"name": args.save_view},
+    saved = save_view(args.save_view, args)
+    if saved:
+        print_msg(
+            Message(
+                MsgText.ViewSaved,
+                MsgStyle.NORMAL,
+                {"name": args.save_view},
+            )
         )
-    )
+    else:
+        print_msg(
+            Message(
+                MsgText.ViewSaveCancelled,
+                MsgStyle.NORMAL,
+                {"name": args.save_view},
+            )
+        )
     return 0
 
 

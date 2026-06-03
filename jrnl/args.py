@@ -19,6 +19,30 @@ from jrnl.plugins import EXPORT_FORMATS
 from jrnl.plugins import IMPORT_FORMATS
 from jrnl.plugins import util
 
+SEARCH_FIELDS = [
+    "contains",
+    "tagged",
+    "excluded",
+    "exclude_starred",
+    "exclude_tagged",
+    "end_date",
+    "today_in_history",
+    "month",
+    "day",
+    "year",
+    "limit",
+    "on_date",
+    "starred",
+    "start_date",
+    "strict",
+    "text",
+]
+
+
+def get_search_fields() -> list[str]:
+    """Return the list of search field names for view filtering."""
+    return list(SEARCH_FIELDS)
+
 
 class WrappingFormatter(argparse.RawTextHelpFormatter):
     """Used in help screen"""

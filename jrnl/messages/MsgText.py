@@ -304,3 +304,5 @@ class MsgText(Enum):
     ViewsFileCorrupted = "The views file is corrupted: {error}"
     ViewsListHeader = "Saved views:\n"
     ViewDetails = "  {name}: {filters}"
+    OverwriteViewQuestion = "View '{name}' already exists. Overwrite it?"
+    ViewSaveCancelled = "Save cancelled. View '{name}' was not modified."

@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING
 from jrnl import install
 from jrnl import plugins
 from jrnl import time
+from jrnl.args import SEARCH_FIELDS
+from jrnl.commands import postconfig_delete_view
+from jrnl.commands import postconfig_save_view
 from jrnl.config import DEFAULT_JOURNAL_KEY
 from jrnl.config import get_config_path
 from jrnl.config import get_journal_name
@@ -23,6 +26,7 @@ from jrnl.messages import MsgText
 from jrnl.output import print_msg
 from jrnl.output import print_msgs
 from jrnl.override import apply_overrides
+from jrnl.views import apply_view
 
 if TYPE_CHECKING:
     from argparse import Namespace
@@ -59,16 +63,13 @@ def run(args: "Namespace"):
 
     # Handle view commands before other post-config commands
     if args.save_view:
-        from jrnl.commands import postconfig_save_view
         return postconfig_save_view(args=args, config=config)
 
     if args.delete_view:
-        from jrnl.commands import postconfig_delete_view
         return postconfig_delete_view(args=args, config=config)
 
     # Apply view filters if --view is specified
     if args.view:
-        from jrnl.views import apply_view
         apply_view(args.view, args)
 
     # Run post-config command now that config is ready
@@ -425,23 +426,9 @@ def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> 
 def _has_search_args(args: "Namespace") -> bool:
     """Looking for arguments that filter a journal"""
     return any(
-        (
-            args.contains,
-            args.tagged,
-            args.excluded,
-            args.exclude_starred,
-            args.exclude_tagged,
-            args.end_date,
-            args.today_in_history,
-            args.month,
-            args.day,
-            args.year,
-            args.limit,
-            args.on_date,
-            args.starred,
-            args.start_date,
-            args.strict,  # -and
-        )
+        getattr(args, field, None)
+        for field in SEARCH_FIELDS
+        if field != "text"
     )
 
 
