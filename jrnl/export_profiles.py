@@ -10,6 +10,7 @@ from jrnl.exception import JrnlException
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
+from jrnl.prompt import yesno
 
 
 EXPORT_PROFILES_KEY = "export_profiles"
@@ -72,6 +73,18 @@ def save_profile(
                 MsgStyle.ERROR,
             )
         )
+    
+    existing_profiles = get_profiles(original_config)
+    if profile_name in existing_profiles:
+        if not yesno(
+            Message(
+                MsgText.ExportProfileOverwriteQuestion,
+                MsgStyle.WARNING,
+                {"profile_name": profile_name},
+            ),
+            default=False,
+        ):
+            return
     
     if EXPORT_PROFILES_KEY not in original_config:
         original_config[EXPORT_PROFILES_KEY] = {}

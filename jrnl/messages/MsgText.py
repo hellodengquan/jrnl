@@ -294,6 +294,9 @@ class MsgText(Enum):
         Please specify at least one of: --format, --file, --template
         """
     ExportProfileSaved = "Export profile '{profile_name}' saved"
+    ExportProfileOverwriteQuestion = """
+        Export profile '{profile_name}' already exists. Overwrite?
+        """
     ExportProfileDeleted = "Export profile '{profile_name}' deleted"
     ExportPathConflict = """
         The export path '{path}' already exists.

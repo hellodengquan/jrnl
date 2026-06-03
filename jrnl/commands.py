@@ -21,11 +21,16 @@ import platform
 import sys
 
 from jrnl.config import cmd_requires_valid_journal_name
+from jrnl.config import load_config
 from jrnl.exception import JrnlException
+from jrnl.export_profiles import delete_profile
+from jrnl.export_profiles import list_profiles
+from jrnl.export_profiles import save_profile
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.output import print_msg
+from jrnl.path import get_config_path
 
 
 def preconfig_diagnostic(_) -> None:
@@ -60,10 +65,6 @@ def preconfig_version(_) -> None:
 
 
 def preconfig_list_export_profiles(args) -> int:
-    from jrnl.config import load_config
-    from jrnl.export_profiles import list_profiles
-    from jrnl.path import get_config_path
-
     config_path = args.config_file_path or get_config_path()
     try:
         config = load_config(config_path)
@@ -199,12 +200,6 @@ def postconfig_decrypt(
 def postconfig_save_export_profile(
     args: argparse.Namespace, config: dict, original_config: dict, **_
 ) -> int:
-    from jrnl.export_profiles import save_profile
-    from jrnl.messages import Message
-    from jrnl.messages import MsgStyle
-    from jrnl.messages import MsgText
-    from jrnl.output import print_msg
-
     save_profile(
         original_config,
         original_config,
@@ -226,12 +221,6 @@ def postconfig_save_export_profile(
 def postconfig_delete_export_profile(
     args: argparse.Namespace, config: dict, original_config: dict, **_
 ) -> int:
-    from jrnl.export_profiles import delete_profile
-    from jrnl.messages import Message
-    from jrnl.messages import MsgStyle
-    from jrnl.messages import MsgText
-    from jrnl.output import print_msg
-
     profile_name = args.delete_export_profile
     delete_profile(original_config, original_config, profile_name)
     print_msg(
