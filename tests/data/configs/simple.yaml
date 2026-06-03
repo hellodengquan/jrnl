@@ -1,17 +1,18 @@
+colors:
+  body: none
+  date: none
+  tags: none
+  title: none
 default_hour: 9
 default_minute: 0
-editor: ""
+editor: ''
 encrypt: false
 highlight: true
+indent_character: '|'
 journals:
   default: features/journals/simple.journal
 linewrap: 80
-tagsymbols: "@"
+tagsymbols: '@'
 template: false
-timeformat: "%Y-%m-%d %H:%M"
-indent_character: "|"
-colors:
-  date: none
-  title: none
-  body: none
-  tags: none
+timeformat: '%Y-%m-%d %H:%M'
+version: v4.3

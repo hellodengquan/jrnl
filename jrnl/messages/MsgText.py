@@ -289,3 +289,18 @@ class MsgText(Enum):
         The command {old_cmd} is deprecated and will be removed from jrnl soon.
         Please use {new_cmd} instead.
         """
+
+    # --- Views --- #
+    ViewSaved = "View '{name}' saved successfully"
+    ViewDeleted = "View '{name}' deleted successfully"
+    ViewNotFound = """
+        View '{name}' not found.
+
+        Available views:
+        {available_views}
+        """
+    EmptyViewNotAllowed = "Cannot save an empty view. Please provide search filters first."
+    InvalidView = "The view '{name}' is invalid or empty."
+    ViewsFileCorrupted = "The views file is corrupted: {error}"
+    ViewsListHeader = "Saved views:\n"
+    ViewDetails = "  {name}: {filters}"

@@ -6,9 +6,12 @@ import re
 import textwrap
 
 from jrnl.commands import postconfig_decrypt
+from jrnl.commands import postconfig_delete_view
 from jrnl.commands import postconfig_encrypt
 from jrnl.commands import postconfig_import
 from jrnl.commands import postconfig_list
+from jrnl.commands import postconfig_list_views
+from jrnl.commands import postconfig_save_view
 from jrnl.commands import preconfig_diagnostic
 from jrnl.commands import preconfig_version
 from jrnl.output import deprecated_cmd
@@ -445,6 +448,36 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
 
     alternate_config.add_argument(
         "--cf", dest="config_file_path", type=str, default="", help=argparse.SUPPRESS
+    )
+
+    views_msg = """
+        Save and reuse your frequently used search filters as named views.
+        """
+    views = parser.add_argument_group("Views", textwrap.dedent(views_msg).strip())
+    views.add_argument(
+        "--save-view",
+        dest="save_view",
+        metavar="NAME",
+        help="Save current search filters as a named view",
+    )
+    views.add_argument(
+        "--delete-view",
+        dest="delete_view",
+        metavar="NAME",
+        help="Delete a saved view",
+    )
+    views.add_argument(
+        "--list-views",
+        action="store_const",
+        const=postconfig_list_views,
+        dest="postconfig_cmd",
+        help="List all saved views",
+    )
+    views.add_argument(
+        "--view",
+        dest="view",
+        metavar="NAME",
+        help="Apply filters from a saved view to the current search",
     )
 
     # Handle '-123' as a shortcut for '-n 123'

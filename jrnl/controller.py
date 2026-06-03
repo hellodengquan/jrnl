@@ -57,6 +57,20 @@ def run(args: "Namespace"):
     args = get_journal_name(args, config)
     config = scope_config(config, args.journal_name)
 
+    # Handle view commands before other post-config commands
+    if args.save_view:
+        from jrnl.commands import postconfig_save_view
+        return postconfig_save_view(args=args, config=config)
+
+    if args.delete_view:
+        from jrnl.commands import postconfig_delete_view
+        return postconfig_delete_view(args=args, config=config)
+
+    # Apply view filters if --view is specified
+    if args.view:
+        from jrnl.views import apply_view
+        apply_view(args.view, args)
+
     # Run post-config command now that config is ready
     if callable(args.postconfig_cmd):
         return args.postconfig_cmd(

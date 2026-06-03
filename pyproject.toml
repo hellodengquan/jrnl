@@ -158,6 +158,13 @@ known-first-party = ["jrnl", "tests"]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-bdd>=8.1.0",
+    "pytest-xdist>=3.8.0",
+]
+
 [tool.tox]
 # see: https://tox.wiki/en/latest/example/basic.html
 legacy_tox_ini = """
