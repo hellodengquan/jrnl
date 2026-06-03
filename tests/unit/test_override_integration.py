@@ -45,8 +45,9 @@ def in_memory_config(monkeypatch):
 
 
 @pytest.fixture
-def multi_journal_config():
+def multi_journal_config(in_memory_config):
     """Fixture providing a multi-journal configuration dictionary."""
+    fake_home = in_memory_config["home"]
     base_config = get_default_config()
     base_config.update({
         "editor": "vim",
@@ -54,10 +55,10 @@ def multi_journal_config():
         "timeformat": "%Y-%m-%d %H:%M",
     })
     base_config["journals"] = {
-        "default": "/tmp/default.journal",
-        "work": "/tmp/work.journal",
+        "default": f"{fake_home}/default.journal",
+        "work": f"{fake_home}/work.journal",
         "personal": {
-            "journal": "/tmp/personal.journal",
+            "journal": f"{fake_home}/personal.journal",
             "editor": "nano",
             "linewrap": 100,
         },
@@ -241,32 +242,36 @@ class TestMultiJournalSelection:
 
     def test_journal_specific_config_applied(self, in_memory_config, multi_journal_config):
         """Journal-specific configuration should be scoped properly."""
+        fake_home = in_memory_config["home"]
         args = parse_args(["personal"])
         args = get_journal_name(args, multi_journal_config)
         scoped_config = scope_config(multi_journal_config, args.journal_name)
 
         assert scoped_config["editor"] == "nano"
         assert scoped_config["linewrap"] == 100
-        assert scoped_config["journal"] == "/tmp/personal.journal"
+        assert scoped_config["journal"] == f"{fake_home}/personal.journal"
 
     def test_override_journal_path(self, in_memory_config, multi_journal_config, minimal_args):
         """Override journal path through config override."""
-        minimal_args.config_override = [["journals.default", "/tmp/override.journal"]]
+        fake_home = in_memory_config["home"]
+        minimal_args.config_override = [["journals.default", f"{fake_home}/override.journal"]]
         result_config = apply_overrides(minimal_args, multi_journal_config.copy())
 
-        assert result_config["journals"]["default"] == "/tmp/override.journal"
+        assert result_config["journals"]["default"] == f"{fake_home}/override.journal"
 
     def test_override_new_journal(self, in_memory_config, multi_journal_config, minimal_args):
         """Create a new journal through config override."""
-        minimal_args.config_override = [["journals.temp", "/tmp/temp.journal"]]
+        fake_home = in_memory_config["home"]
+        minimal_args.config_override = [["journals.temp", f"{fake_home}/temp.journal"]]
         result_config = apply_overrides(minimal_args, multi_journal_config.copy())
 
         assert "temp" in result_config["journals"]
-        assert result_config["journals"]["temp"] == "/tmp/temp.journal"
+        assert result_config["journals"]["temp"] == f"{fake_home}/temp.journal"
 
     def test_select_overridden_journal(self, in_memory_config, multi_journal_config, minimal_args):
         """Select a journal that was added via override."""
-        minimal_args.config_override = [["journals.temp", "/tmp/temp.journal"]]
+        fake_home = in_memory_config["home"]
+        minimal_args.config_override = [["journals.temp", f"{fake_home}/temp.journal"]]
         result_config = apply_overrides(minimal_args, multi_journal_config.copy())
 
         args = parse_args(["temp", "entry text"])
@@ -463,12 +468,13 @@ class TestOverrideRegressionPrevention:
 
     def test_override_preserves_other_journals(self, in_memory_config, multi_journal_config, minimal_args):
         """Override should not affect other journal configurations."""
-        minimal_args.config_override = [["journals.work", "/tmp/new_work.journal"]]
+        fake_home = in_memory_config["home"]
+        minimal_args.config_override = [["journals.work", f"{fake_home}/new_work.journal"]]
         result_config = apply_overrides(minimal_args, multi_journal_config.copy())
 
-        assert result_config["journals"]["work"] == "/tmp/new_work.journal"
-        assert result_config["journals"]["default"] == "/tmp/default.journal"
-        assert result_config["journals"]["personal"]["journal"] == "/tmp/personal.journal"
+        assert result_config["journals"]["work"] == f"{fake_home}/new_work.journal"
+        assert result_config["journals"]["default"] == f"{fake_home}/default.journal"
+        assert result_config["journals"]["personal"]["journal"] == f"{fake_home}/personal.journal"
 
     def test_consecutive_overrides_independent(self, in_memory_config, multi_journal_config, minimal_args):
         """Consecutive overrides should work independently."""
@@ -527,8 +533,9 @@ class TestDeepNestedConfigOverride:
 
     def test_override_journals_work_editor(self, in_memory_config, multi_journal_config, minimal_args):
         """Override deeply nested journals.work.editor setting."""
+        fake_home = in_memory_config["home"]
         multi_journal_config["journals"]["work"] = {
-            "journal": "/tmp/work.journal",
+            "journal": f"{fake_home}/work.journal",
             "editor": "vim",
         }
 
@@ -536,18 +543,22 @@ class TestDeepNestedConfigOverride:
         result_config = apply_overrides(minimal_args, multi_journal_config.copy())
 
         assert result_config["journals"]["work"]["editor"] == "code"
+        assert result_config["journals"]["work"]["journal"].startswith(fake_home)
 
     def test_override_journals_personal_linewrap(self, in_memory_config, multi_journal_config, minimal_args):
         """Override journals.personal.linewrap setting."""
+        fake_home = in_memory_config["home"]
         minimal_args.config_override = [["journals.personal.linewrap", "120"]]
         result_config = apply_overrides(minimal_args, multi_journal_config.copy())
 
         assert result_config["journals"]["personal"]["linewrap"] == 120
+        assert result_config["journals"]["personal"]["journal"].startswith(fake_home)
 
     def test_override_journals_default_encrypt(self, in_memory_config, multi_journal_config, minimal_args):
         """Override journals.default.encrypt setting."""
+        fake_home = in_memory_config["home"]
         multi_journal_config["journals"]["default"] = {
-            "journal": "/tmp/default.journal",
+            "journal": f"{fake_home}/default.journal",
             "encrypt": False,
         }
 
@@ -555,11 +566,13 @@ class TestDeepNestedConfigOverride:
         result_config = apply_overrides(minimal_args, multi_journal_config.copy())
 
         assert result_config["journals"]["default"]["encrypt"] is True
+        assert result_config["journals"]["default"]["journal"].startswith(fake_home)
 
     def test_override_multiple_deep_nested_settings(self, in_memory_config, multi_journal_config, minimal_args):
         """Override multiple deeply nested settings at once."""
+        fake_home = in_memory_config["home"]
         multi_journal_config["journals"]["work"] = {
-            "journal": "/tmp/work.journal",
+            "journal": f"{fake_home}/work.journal",
             "editor": "vim",
             "encrypt": False,
         }
@@ -574,6 +587,7 @@ class TestDeepNestedConfigOverride:
         assert result_config["journals"]["work"]["editor"] == "sublime"
         assert result_config["journals"]["work"]["encrypt"] is True
         assert result_config["journals"]["personal"]["editor"] == "gedit"
+        assert result_config["journals"]["work"]["journal"].startswith(fake_home)
 
     def test_override_colors_body_deep_nested(self, in_memory_config, multi_journal_config, minimal_args):
         """Override nested colors.body setting."""
@@ -592,8 +606,9 @@ class TestDeepNestedConfigOverride:
 
     def test_deep_nested_override_preserves_other_journals(self, in_memory_config, multi_journal_config, minimal_args):
         """Deep nested override should not affect other journal configs."""
+        fake_home = in_memory_config["home"]
         multi_journal_config["journals"]["work"] = {
-            "journal": "/tmp/work.journal",
+            "journal": f"{fake_home}/work.journal",
             "editor": "vim",
         }
         original_default = multi_journal_config["journals"]["default"]
@@ -605,11 +620,13 @@ class TestDeepNestedConfigOverride:
         assert result_config["journals"]["work"]["editor"] == "nano"
         assert result_config["journals"]["default"] == original_default
         assert result_config["journals"]["personal"] == original_personal
+        assert result_config["journals"]["work"]["journal"].startswith(fake_home)
 
     def test_override_deep_nested_via_parse_args(self, in_memory_config, multi_journal_config):
         """Test deep nested override through actual argument parsing."""
+        fake_home = in_memory_config["home"]
         multi_journal_config["journals"]["work"] = {
-            "journal": "/tmp/work.journal",
+            "journal": f"{fake_home}/work.journal",
             "editor": "vim",
         }
 
@@ -617,6 +634,7 @@ class TestDeepNestedConfigOverride:
         result_config = apply_overrides(args, multi_journal_config.copy())
 
         assert result_config["journals"]["work"]["editor"] == "emacs"
+        assert result_config["journals"]["work"]["journal"].startswith(fake_home)
 
 
 class TestEncryptedJournalPassword:
@@ -927,6 +945,53 @@ class TestTempfileMigrationComplete:
                         decorators = [d.id for d in item.decorator_list if hasattr(d, 'id')]
                         assert "pytest.fixture" not in decorators, \
                             f"Local fixture {item.name} still exists in TestEncryptedJournalPassword"
+
+    def test_no_hardcoded_tmp_paths_in_deep_nested_tests(self):
+        """Verify TestDeepNestedConfigOverride has no hardcoded /tmp paths."""
+        import ast
+
+        with open(__file__, "r") as f:
+            content = f.read()
+
+        tree = ast.parse(content)
+
+        tmp_paths = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "TestDeepNestedConfigOverride":
+                for subnode in ast.walk(node):
+                    if isinstance(subnode, ast.Constant) and isinstance(subnode.value, str):
+                        if "/tmp/" in subnode.value or subnode.value.startswith("/tmp"):
+                            tmp_paths.append(f"Line {subnode.lineno}: '{subnode.value}'")
+
+        assert len(tmp_paths) == 0, \
+            f"Hardcoded /tmp paths found in TestDeepNestedConfigOverride: {', '.join(tmp_paths)}"
+
+    def test_multi_journal_config_fixture_uses_fake_home(self, multi_journal_config, in_memory_config):
+        """Verify multi_journal_config fixture uses fake_home paths."""
+        fake_home = in_memory_config["home"]
+
+        assert multi_journal_config["journals"]["default"].startswith(fake_home)
+        assert multi_journal_config["journals"]["work"].startswith(fake_home)
+        assert multi_journal_config["journals"]["personal"]["journal"].startswith(fake_home)
+
+        assert not multi_journal_config["journals"]["default"].startswith("/tmp")
+        assert not multi_journal_config["journals"]["work"].startswith("/tmp")
+        assert not multi_journal_config["journals"]["personal"]["journal"].startswith("/tmp")
+
+    def test_all_journal_paths_use_fake_home_prefix(self, in_memory_config, multi_journal_config):
+        """Verify all journal paths in config use fake_home prefix."""
+        fake_home = in_memory_config["home"]
+
+        for journal_name, journal_config in multi_journal_config["journals"].items():
+            if isinstance(journal_config, dict):
+                path = journal_config.get("journal", "")
+            else:
+                path = journal_config
+
+            assert path.startswith(fake_home), \
+                f"Journal '{journal_name}' path '{path}' does not start with fake_home"
+            assert not path.startswith("/tmp"), \
+                f"Journal '{journal_name}' path '{path}' still uses /tmp prefix"
 
 
 class TestFixtureIsolationBehavior:
