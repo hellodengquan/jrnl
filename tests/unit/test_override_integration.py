@@ -4,6 +4,7 @@
 import os
 import tempfile
 from argparse import Namespace
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -30,6 +31,31 @@ def isolated_config_dir():
         with mock.patch.dict(os.environ, {"HOME": str(home_dir)}):
             with mock.patch("jrnl.path.get_config_path", return_value=str(config_dir / "jrnl.yaml")):
                 yield {"config_dir": config_dir, "home_dir": home_dir}
+
+
+@pytest.fixture
+def in_memory_config(monkeypatch):
+    """Pure unit fixture using monkeypatch + StringIO, no disk IO.
+
+    This fixture provides complete in-memory isolation for configuration
+    without any tempfile or real file system operations.
+    """
+    mock_stdout = StringIO()
+    mock_stderr = StringIO()
+
+    monkeypatch.setattr("sys.stdout", mock_stdout)
+    monkeypatch.setattr("sys.stderr", mock_stderr)
+
+    fake_home = "/fake/home/user"
+    monkeypatch.setenv("HOME", fake_home)
+    monkeypatch.setattr("jrnl.path.get_config_path", lambda: f"{fake_home}/.config/jrnl.yaml")
+    monkeypatch.setattr("jrnl.path.get_default_journal_path", lambda: f"{fake_home}/journal.txt")
+
+    yield {
+        "stdout": mock_stdout,
+        "stderr": mock_stderr,
+        "home": fake_home,
+    }
 
 
 @pytest.fixture
@@ -466,3 +492,329 @@ class TestOverrideRegressionPrevention:
         assert config1["editor"] == "nano"
         assert config2["editor"] == "emacs"
         assert config_copy["editor"] == "vim"
+
+
+class TestInMemoryFixture:
+    """Tests for the in-memory fixture with monkeypatch."""
+
+    def test_fixture_sets_fake_home(self, in_memory_config):
+        """Verify fixture sets up fake HOME directory."""
+        assert os.environ["HOME"] == "/fake/home/user"
+
+    def test_fixture_uses_in_memory_paths(self, in_memory_config):
+        """Verify fixture uses in-memory paths."""
+        from jrnl.path import get_config_path
+        from jrnl.path import get_default_journal_path
+
+        assert get_config_path() == "/fake/home/user/.config/jrnl.yaml"
+        assert get_default_journal_path() == "/fake/home/user/journal.txt"
+
+    def test_fixture_does_not_use_tempfile(self, in_memory_config):
+        """Verify fixture doesn't depend on tempfile."""
+        import tempfile
+
+        real_mkdtemp = tempfile.mkdtemp
+        tempfile.mkdtemp = None
+        try:
+            assert os.environ["HOME"] == "/fake/home/user"
+        finally:
+            tempfile.mkdtemp = real_mkdtemp
+
+    def test_fixture_provides_isolated_environment(self, in_memory_config):
+        """Verify fixture provides completely isolated environment."""
+        fake_config_path = "/fake/home/user/.config/jrnl.yaml"
+
+        from jrnl.path import get_config_path
+
+        assert not fake_config_path.startswith("/tmp")
+        assert not fake_config_path.startswith("/var")
+        assert get_config_path() == fake_config_path
+
+
+class TestDeepNestedConfigOverride:
+    """Tests for deep nested config-override paths like journals.work.editor."""
+
+    def test_override_journals_work_editor(self, multi_journal_config, minimal_args):
+        """Override deeply nested journals.work.editor setting."""
+        multi_journal_config["journals"]["work"] = {
+            "journal": "/tmp/work.journal",
+            "editor": "vim",
+        }
+
+        minimal_args.config_override = [["journals.work.editor", "code"]]
+        result_config = apply_overrides(minimal_args, multi_journal_config.copy())
+
+        assert result_config["journals"]["work"]["editor"] == "code"
+
+    def test_override_journals_personal_linewrap(self, multi_journal_config, minimal_args):
+        """Override journals.personal.linewrap setting."""
+        minimal_args.config_override = [["journals.personal.linewrap", "120"]]
+        result_config = apply_overrides(minimal_args, multi_journal_config.copy())
+
+        assert result_config["journals"]["personal"]["linewrap"] == 120
+
+    def test_override_journals_default_encrypt(self, multi_journal_config, minimal_args):
+        """Override journals.default.encrypt setting."""
+        multi_journal_config["journals"]["default"] = {
+            "journal": "/tmp/default.journal",
+            "encrypt": False,
+        }
+
+        minimal_args.config_override = [["journals.default.encrypt", "true"]]
+        result_config = apply_overrides(minimal_args, multi_journal_config.copy())
+
+        assert result_config["journals"]["default"]["encrypt"] is True
+
+    def test_override_multiple_deep_nested_settings(self, multi_journal_config, minimal_args):
+        """Override multiple deeply nested settings at once."""
+        multi_journal_config["journals"]["work"] = {
+            "journal": "/tmp/work.journal",
+            "editor": "vim",
+            "encrypt": False,
+        }
+
+        minimal_args.config_override = [
+            ["journals.work.editor", "sublime"],
+            ["journals.work.encrypt", "true"],
+            ["journals.personal.editor", "gedit"],
+        ]
+        result_config = apply_overrides(minimal_args, multi_journal_config.copy())
+
+        assert result_config["journals"]["work"]["editor"] == "sublime"
+        assert result_config["journals"]["work"]["encrypt"] is True
+        assert result_config["journals"]["personal"]["editor"] == "gedit"
+
+    def test_override_colors_body_deep_nested(self, multi_journal_config, minimal_args):
+        """Override nested colors.body setting."""
+        multi_journal_config["colors"] = {
+            "body": "none",
+            "date": "black",
+            "tags": "yellow",
+            "title": "cyan",
+        }
+
+        minimal_args.config_override = [["colors.body", "red"]]
+        result_config = apply_overrides(minimal_args, multi_journal_config.copy())
+
+        assert result_config["colors"]["body"] == "red"
+        assert result_config["colors"]["date"] == "black"
+
+    def test_deep_nested_override_preserves_other_journals(self, multi_journal_config, minimal_args):
+        """Deep nested override should not affect other journal configs."""
+        multi_journal_config["journals"]["work"] = {
+            "journal": "/tmp/work.journal",
+            "editor": "vim",
+        }
+        original_default = multi_journal_config["journals"]["default"]
+        original_personal = multi_journal_config["journals"]["personal"].copy()
+
+        minimal_args.config_override = [["journals.work.editor", "nano"]]
+        result_config = apply_overrides(minimal_args, multi_journal_config.copy())
+
+        assert result_config["journals"]["work"]["editor"] == "nano"
+        assert result_config["journals"]["default"] == original_default
+        assert result_config["journals"]["personal"] == original_personal
+
+    def test_override_deep_nested_via_parse_args(self, multi_journal_config):
+        """Test deep nested override through actual argument parsing."""
+        multi_journal_config["journals"]["work"] = {
+            "journal": "/tmp/work.journal",
+            "editor": "vim",
+        }
+
+        args = parse_args(["--config-override", "journals.work.editor", "emacs"])
+        result_config = apply_overrides(args, multi_journal_config.copy())
+
+        assert result_config["journals"]["work"]["editor"] == "emacs"
+
+
+class TestEncryptedJournalPassword:
+    """Tests for encrypted journal password prompt and decryption failure branches."""
+
+    @pytest.fixture
+    def mock_config(self):
+        """Fixture providing minimal config for encryption tests."""
+        return {"encrypt": True, "journal": "/tmp/test.journal"}
+
+    def test_password_prompt_first_try(self, mock_config):
+        """Test password is prompted on first decryption attempt."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+        from jrnl.exception import JrnlException
+        from jrnl.messages import MsgText
+
+        password_prompts = []
+        correct_password = "test_password_123"
+
+        def mock_prompt_password(first_try=True):
+            password_prompts.append(("prompt", first_try))
+            return "wrong_password"
+
+        with mock.patch("jrnl.encryption.BasePasswordEncryption.prompt_password", mock_prompt_password):
+            with mock.patch("jrnl.encryption.BasePasswordEncryption.get_keyring_password", return_value=None):
+                with mock.patch("jrnl.encryption.BasePasswordEncryption.create_password", return_value=correct_password):
+                    encryption = Jrnlv2Encryption(journal_name="test_journal", config=mock_config)
+                    encryption.check_keyring = False
+
+                    encrypted_data = encryption.encrypt("secret data")
+                    encryption.password = None
+                    encryption._attempts = 0
+
+                    with pytest.raises(JrnlException) as exc_info:
+                        encryption.decrypt(encrypted_data)
+
+                    assert len(password_prompts) >= 3
+                    assert MsgText.PasswordMaxTriesExceeded in [msg.text for msg in exc_info.value.messages]
+
+    def test_decrypt_success_with_correct_password(self, mock_config):
+        """Test successful decryption when correct password is provided."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+        correct_password = "correct_password"
+        prompts = []
+
+        def mock_prompt_password(first_try=True):
+            prompts.append(first_try)
+            return correct_password
+
+        with mock.patch("jrnl.encryption.BasePasswordEncryption.prompt_password", mock_prompt_password):
+            with mock.patch("jrnl.encryption.BasePasswordEncryption.get_keyring_password", return_value=None):
+                with mock.patch("jrnl.encryption.BasePasswordEncryption.create_password", return_value=correct_password):
+                    encryption = Jrnlv2Encryption(journal_name="test_journal", config=mock_config)
+                    encryption.check_keyring = False
+
+                    encrypted_data = encryption.encrypt("secret data")
+                    encryption.password = None
+                    encryption._attempts = 0
+
+                    decrypted = encryption.decrypt(encrypted_data)
+
+                    assert decrypted == "secret data"
+                    assert len(prompts) == 1
+                    assert prompts[0] is True
+
+    def test_password_retry_after_wrong_password(self, mock_config):
+        """Test password retry logic after wrong password."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+        correct_password = "correct_password"
+        password_sequence = iter(["wrong1", "wrong2", correct_password])
+        first_try_flags = []
+
+        def mock_prompt_password(first_try=True):
+            first_try_flags.append(first_try)
+            return next(password_sequence)
+
+        with mock.patch("jrnl.encryption.BasePasswordEncryption.prompt_password", mock_prompt_password):
+            with mock.patch("jrnl.encryption.BasePasswordEncryption.get_keyring_password", return_value=None):
+                with mock.patch("jrnl.encryption.BasePasswordEncryption.create_password", return_value=correct_password):
+                    encryption = Jrnlv2Encryption(journal_name="test_journal", config=mock_config)
+                    encryption.check_keyring = False
+
+                    encrypted_data = encryption.encrypt("secret data")
+                    encryption.password = None
+                    encryption._attempts = 0
+
+                    decrypted = encryption.decrypt(encrypted_data)
+
+                    assert decrypted == "secret data"
+                    assert len(first_try_flags) == 3
+                    assert first_try_flags[0] is True
+                    assert first_try_flags[1] is False
+                    assert first_try_flags[2] is False
+
+    def test_max_attempts_exceeded_raises_exception(self, mock_config):
+        """Test that max password attempts exceeded raises JrnlException."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+        from jrnl.exception import JrnlException
+
+        def mock_prompt_password(first_try=True):
+            return "wrong_password"
+
+        with mock.patch("jrnl.encryption.BasePasswordEncryption.prompt_password", mock_prompt_password):
+            with mock.patch("jrnl.encryption.BasePasswordEncryption.get_keyring_password", return_value=None):
+                with mock.patch("jrnl.encryption.BasePasswordEncryption.create_password", return_value="test_password"):
+                    encryption = Jrnlv2Encryption(journal_name="test_journal", config=mock_config)
+                    encryption.check_keyring = False
+
+                    encrypted_data = encryption.encrypt("secret data")
+                    encryption.password = None
+                    encryption._attempts = 0
+                    encryption._max_attempts = 3
+
+                    with pytest.raises(JrnlException):
+                        encryption.decrypt(encrypted_data)
+
+                    assert encryption._attempts == 3
+
+    def test_decrypt_with_invalid_token(self, mock_config):
+        """Test decryption with invalid token data."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+        encryption = Jrnlv2Encryption(journal_name="test_journal", config=mock_config)
+        encryption.check_keyring = False
+        encryption.password = "test_password"
+
+        result = encryption._decrypt(b"invalid_encrypted_data")
+
+        assert result is None
+
+    def test_keyring_password_used_first(self, mock_config):
+        """Test that keyring password is tried before prompting user."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+        keyring_called = []
+        prompt_called = []
+        keyring_password = "keyring_password"
+
+        def mock_keyring_pw(journal_name):
+            keyring_called.append(journal_name)
+            return keyring_password
+
+        def mock_prompt_pw(first_try=True):
+            prompt_called.append(first_try)
+            return "prompt_password"
+
+        with mock.patch("jrnl.encryption.BasePasswordEncryption.get_keyring_password", mock_keyring_pw):
+            with mock.patch("jrnl.encryption.BasePasswordEncryption.prompt_password", mock_prompt_pw):
+                with mock.patch("jrnl.encryption.BasePasswordEncryption.create_password", return_value=keyring_password):
+                    encryption = Jrnlv2Encryption(journal_name="test_journal", config=mock_config)
+                    encryption.check_keyring = True
+
+                    encrypted_data = encryption.encrypt("secret data")
+                    encryption.password = None
+                    encryption._attempts = 0
+
+                    encryption.decrypt(encrypted_data)
+
+                    assert len(keyring_called) >= 1
+                    assert keyring_called[0] == "test_journal"
+                    assert len(prompt_called) == 0
+
+    def test_skip_keyring_when_disabled(self, mock_config):
+        """Test that keyring is skipped when check_keyring is False."""
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+        keyring_called = []
+        test_password = "test_password"
+        prompt_passwords = iter([test_password])
+
+        def mock_keyring_pw(journal_name):
+            keyring_called.append(journal_name)
+            return None
+
+        def mock_prompt_pw(first_try=True):
+            return next(prompt_passwords)
+
+        with mock.patch("jrnl.encryption.BasePasswordEncryption.get_keyring_password", mock_keyring_pw):
+            with mock.patch("jrnl.encryption.BasePasswordEncryption.prompt_password", mock_prompt_pw):
+                with mock.patch("jrnl.encryption.BasePasswordEncryption.create_password", return_value=test_password):
+                    encryption = Jrnlv2Encryption(journal_name="test_journal", config=mock_config)
+                    encryption.check_keyring = False
+
+                    encrypted_data = encryption.encrypt("secret data")
+                    encryption.password = None
+                    encryption._attempts = 0
+
+                    encryption.decrypt(encrypted_data)
+
+                    assert len(keyring_called) == 0
