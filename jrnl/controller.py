@@ -145,44 +145,39 @@ def run(parsed_args: ParsedArgs):
 
     search_mode(ctx)
     entries_found_count = len(journal)
-    _print_entries_found_count(entries_found_count, ctx.args)
+    _print_entries_found_count(ctx)
 
     _perform_actions_on_search_results(ctx)
 
-    if entries_found_count != 0 and _has_action_args(ctx.args):
-        _print_changed_counts(journal)
+    if entries_found_count != 0 and _has_action_args(ctx):
+        _print_changed_counts(ctx)
     else:
         _display_search_results(ctx)
 
 
 def _perform_actions_on_search_results(ctx: RuntimeContext):
-    args = ctx.args
-
-    if args.change_time:
+    if ctx.args.change_time:
         _change_time_search_results(ctx)
 
-    if args.delete:
+    if ctx.args.delete:
         _delete_search_results(ctx)
 
-    if args.edit:
+    if ctx.args.edit:
         _edit_search_results(ctx)
 
 
 def _is_append_mode(ctx: RuntimeContext) -> bool:
     """Determines if we are in append mode (as opposed to search mode)"""
-    args = ctx.args
-    config = ctx.config
-
     append_mode = (
-        not _has_search_args(args)
-        and not _has_action_args(args)
-        and not _has_display_args(args)
+        not _has_search_args(ctx)
+        and not _has_action_args(ctx)
+        and not _has_display_args(ctx)
     )
 
-    if args.edit and ctx.effective_text:
+    if ctx.args.edit and ctx.effective_text:
         append_mode = True
 
-    if append_mode and ctx.effective_text and _has_only_tags(config["tagsymbols"], ctx.effective_text):
+    if append_mode and ctx.effective_text and _has_only_tags(ctx):
         append_mode = False
 
     return append_mode
@@ -200,22 +195,18 @@ def append_mode(ctx: RuntimeContext) -> None:
     """
     logging.debug("Append mode: starting")
 
-    args = ctx.args
-    config = ctx.config
-    journal = ctx.journal
-
-    template_text = _get_template(args, config)
+    template_text = _get_template(ctx)
 
     if ctx.effective_text:
         logging.debug(f"Append mode: cli text detected: {ctx.effective_text}")
         raw = " ".join(ctx.effective_text).strip()
-        if args.edit:
-            raw = _write_in_editor(config, raw)
+        if ctx.args.edit:
+            raw = _write_in_editor(ctx, raw)
     elif not sys.stdin.isatty():
         logging.debug("Append mode: receiving piped text")
         raw = sys.stdin.read()
     else:
-        raw = _write_in_editor(config, template_text)
+        raw = _write_in_editor(ctx, template_text)
 
     if template_text is not None and raw == template_text:
         logging.error("Append mode: raw text was the same as the template")
@@ -228,7 +219,7 @@ def append_mode(ctx: RuntimeContext) -> None:
     logging.debug(
         f"Append mode: appending raw text to journal '{ctx.journal_name}': {raw}"
     )
-    journal.new_entry(raw)
+    ctx.journal.new_entry(raw)
     if ctx.journal_name != DEFAULT_JOURNAL_KEY:
         print_msg(
             Message(
@@ -237,17 +228,17 @@ def append_mode(ctx: RuntimeContext) -> None:
                 {"journal_name": ctx.journal_name},
             )
         )
-    journal.write()
+    ctx.journal.write()
     logging.debug("Append mode: completed journal.write()")
 
 
-def _get_template(args, config) -> str:
+def _get_template(ctx: RuntimeContext) -> str:
     logging.debug(
         "Get template:\n"
-        f"--template: {args.template}\n"
-        f"from config: {config.get('template')}"
+        f"--template: {ctx.args.template}\n"
+        f"from config: {ctx.config.get('template')}"
     )
-    template_path = args.template or config.get("template")
+    template_path = ctx.args.template or ctx.config.get("template")
 
     template_text = None
 
@@ -264,10 +255,7 @@ def search_mode(ctx: RuntimeContext) -> None:
     """
     logging.debug("Search mode: starting")
 
-    args = ctx.args
-    journal = ctx.journal
-
-    if not _has_search_args(args) and not _has_display_args(args) and not ctx.effective_text:
+    if not _has_search_args(ctx) and not _has_display_args(ctx) and not ctx.effective_text:
         logging.debug("Search mode: has no search args")
         return
 
@@ -275,10 +263,10 @@ def search_mode(ctx: RuntimeContext) -> None:
     _filter_journal_entries(ctx)
 
 
-def _write_in_editor(config: dict, prepopulated_text: str | None = None) -> str:
-    if config["editor"]:
+def _write_in_editor(ctx: RuntimeContext, prepopulated_text: str | None = None) -> str:
+    if ctx.config["editor"]:
         logging.debug("Append mode: opening editor")
-        raw = get_text_from_editor(config, prepopulated_text)
+        raw = get_text_from_editor(ctx.config, prepopulated_text)
     else:
         raw = get_text_from_stdin()
 
@@ -287,46 +275,44 @@ def _write_in_editor(config: dict, prepopulated_text: str | None = None) -> str:
 
 def _filter_journal_entries(ctx: RuntimeContext) -> None:
     """Filter journal entries in-place based upon search args"""
-    args = ctx.args
-    journal = ctx.journal
+    if ctx.args.on_date:
+        ctx.args.start_date = ctx.args.end_date = ctx.args.on_date
 
-    if args.on_date:
-        args.start_date = args.end_date = args.on_date
-
-    if args.today_in_history:
+    if ctx.args.today_in_history:
         now = time.parse("now")
-        args.day = now.day
-        args.month = now.month
+        ctx.args.day = now.day
+        ctx.args.month = now.month
 
-    journal.filter(
+    ctx.journal.filter(
         tags=ctx.effective_text,
-        month=args.month,
-        day=args.day,
-        year=args.year,
-        start_date=args.start_date,
-        end_date=args.end_date,
-        strict=args.strict,
-        starred=args.starred,
-        tagged=args.tagged,
-        exclude=args.excluded,
-        exclude_starred=args.exclude_starred,
-        exclude_tagged=args.exclude_tagged,
-        contains=args.contains,
+        month=ctx.args.month,
+        day=ctx.args.day,
+        year=ctx.args.year,
+        start_date=ctx.args.start_date,
+        end_date=ctx.args.end_date,
+        strict=ctx.args.strict,
+        starred=ctx.args.starred,
+        tagged=ctx.args.tagged,
+        exclude=ctx.args.excluded,
+        exclude_starred=ctx.args.exclude_starred,
+        exclude_tagged=ctx.args.exclude_tagged,
+        contains=ctx.args.contains,
     )
-    journal.limit(args.limit)
+    ctx.journal.limit(ctx.args.limit)
 
 
-def _print_entries_found_count(count: int, args: ParsedArgs) -> None:
+def _print_entries_found_count(ctx: RuntimeContext) -> None:
+    count = len(ctx.journal)
     logging.debug(f"count: {count}")
     if count == 0:
-        if args.edit or args.change_time:
+        if ctx.args.edit or ctx.args.change_time:
             print_msg(Message(MsgText.NothingToModify, MsgStyle.WARNING))
-        elif args.delete:
+        elif ctx.args.delete:
             print_msg(Message(MsgText.NothingToDelete, MsgStyle.WARNING))
         else:
             print_msg(Message(MsgText.NoEntriesFound, MsgStyle.NORMAL))
         return
-    elif args.limit and args.limit == count:
+    elif ctx.args.limit and ctx.args.limit == count:
         logging.debug("args.limit is true-ish")
         return
 
@@ -337,9 +323,9 @@ def _print_entries_found_count(count: int, args: ParsedArgs) -> None:
     print_msg(Message(my_msg, MsgStyle.NORMAL, {"num": count}))
 
 
-def _other_entries(journal: "Journal", entries: list["Entry"]) -> list["Entry"]:
-    """Find entries that are not in journal"""
-    return [e for e in entries if e not in journal.entries]
+def _other_entries(ctx: RuntimeContext) -> list["Entry"]:
+    """Find entries that are not in the current filtered journal view"""
+    return [e for e in ctx.old_entries if e not in ctx.journal.entries]
 
 
 def _edit_search_results(ctx: RuntimeContext) -> None:
@@ -350,11 +336,7 @@ def _edit_search_results(ctx: RuntimeContext) -> None:
     """
     from jrnl.config import get_config_path
 
-    config = ctx.config
-    journal = ctx.journal
-    old_entries = ctx.old_entries
-
-    if not config["editor"]:
+    if not ctx.config["editor"]:
         raise JrnlException(
             Message(
                 MsgText.EditorNotConfigured,
@@ -363,10 +345,10 @@ def _edit_search_results(ctx: RuntimeContext) -> None:
             )
         )
 
-    other_entries = _other_entries(journal, old_entries)
+    other_entries = _other_entries(ctx)
 
     try:
-        edited = get_text_from_editor(config, journal.editable_str())
+        edited = get_text_from_editor(ctx.config, ctx.journal.editable_str())
     except JrnlException as e:
         if e.has_message_text(MsgText.NoTextReceived):
             raise JrnlException(
@@ -375,15 +357,15 @@ def _edit_search_results(ctx: RuntimeContext) -> None:
         else:
             raise e
 
-    journal.parse_editable_str(edited)
+    ctx.journal.parse_editable_str(edited)
 
-    journal.entries += other_entries
-    journal.sort()
-    journal.write()
+    ctx.journal.entries += other_entries
+    ctx.journal.sort()
+    ctx.journal.write()
 
 
-def _print_changed_counts(journal: "Journal", **kwargs) -> None:
-    stats = journal.get_change_counts()
+def _print_changed_counts(ctx: RuntimeContext) -> None:
+    stats = ctx.journal.get_change_counts()
     msgs = []
 
     if stats["added"] > 0:
@@ -416,108 +398,95 @@ def _print_changed_counts(journal: "Journal", **kwargs) -> None:
     print_msgs(msgs)
 
 
-def _get_predit_stats(journal: "Journal") -> dict[str, int]:
-    return {"count": len(journal)}
-
-
 def _delete_search_results(ctx: RuntimeContext) -> None:
-    journal = ctx.journal
-    old_entries = ctx.old_entries
+    entries_to_delete = ctx.journal.prompt_action_entries(MsgText.DeleteEntryQuestion)
 
-    entries_to_delete = journal.prompt_action_entries(MsgText.DeleteEntryQuestion)
-
-    journal.entries = old_entries
+    ctx.journal.entries = ctx.old_entries
 
     if entries_to_delete:
-        journal.delete_entries(entries_to_delete)
-
-        journal.write()
+        ctx.journal.delete_entries(entries_to_delete)
+        ctx.journal.write()
 
 
 def _change_time_search_results(
     ctx: RuntimeContext,
     no_prompt: bool = False,
 ) -> None:
-    args = ctx.args
-    journal = ctx.journal
-    old_entries = ctx.old_entries
-
-    entries_to_change = journal.prompt_action_entries(MsgText.ChangeTimeEntryQuestion)
+    entries_to_change = ctx.journal.prompt_action_entries(MsgText.ChangeTimeEntryQuestion)
 
     if entries_to_change:
-        date = time.parse(args.change_time)
-        journal.entries = old_entries
-        journal.change_date_entries(date, entries_to_change)
-
-        journal.write()
+        date = time.parse(ctx.args.change_time)
+        ctx.journal.entries = ctx.old_entries
+        ctx.journal.change_date_entries(date, entries_to_change)
+        ctx.journal.write()
 
 
 def _display_search_results(ctx: RuntimeContext) -> None:
-    journal = ctx.journal
-
-    if len(journal) == 0:
+    if len(ctx.journal) == 0:
         return
 
     export = ctx.args.export or ctx.config.get("display_format")
 
     if ctx.args.tags:
-        print(plugins.get_exporter("tags").export(journal))
+        print(plugins.get_exporter("tags").export(ctx.journal))
 
     elif ctx.args.short or export == "short":
-        print(journal.pprint(short=True))
+        print(ctx.journal.pprint(short=True))
 
     elif export == "pretty":
-        print(journal.pprint())
+        print(ctx.journal.pprint())
 
     elif export:
         exporter = plugins.get_exporter(export)
-        print(exporter.export(journal, ctx.args.filename))
+        print(exporter.export(ctx.journal, ctx.args.filename))
     else:
-        print(journal.pprint())
+        print(ctx.journal.pprint())
 
 
-def _has_search_args(args: ParsedArgs) -> bool:
+def _has_search_args(ctx: RuntimeContext) -> bool:
     """Looking for arguments that filter a journal"""
     return any(
         (
-            args.contains,
-            args.tagged,
-            args.excluded,
-            args.exclude_starred,
-            args.exclude_tagged,
-            args.end_date,
-            args.today_in_history,
-            args.month,
-            args.day,
-            args.year,
-            args.limit,
-            args.on_date,
-            args.starred,
-            args.start_date,
-            args.strict,
+            ctx.args.contains,
+            ctx.args.tagged,
+            ctx.args.excluded,
+            ctx.args.exclude_starred,
+            ctx.args.exclude_tagged,
+            ctx.args.end_date,
+            ctx.args.today_in_history,
+            ctx.args.month,
+            ctx.args.day,
+            ctx.args.year,
+            ctx.args.limit,
+            ctx.args.on_date,
+            ctx.args.starred,
+            ctx.args.start_date,
+            ctx.args.strict,
         )
     )
 
 
-def _has_action_args(args: ParsedArgs) -> bool:
+def _has_action_args(ctx: RuntimeContext) -> bool:
     return any(
         (
-            args.change_time,
-            args.delete,
-            args.edit,
+            ctx.args.change_time,
+            ctx.args.delete,
+            ctx.args.edit,
         )
     )
 
 
-def _has_display_args(args: ParsedArgs) -> bool:
+def _has_display_args(ctx: RuntimeContext) -> bool:
     return any(
         (
-            args.tags,
-            args.short,
-            args.export,
+            ctx.args.tags,
+            ctx.args.short,
+            ctx.args.export,
         )
     )
 
 
-def _has_only_tags(tag_symbols: str, args_text: list[str]) -> bool:
+def _has_only_tags(ctx: RuntimeContext) -> bool:
+    tag_symbols = ctx.config["tagsymbols"]
+    args_text = ctx.effective_text
     return all(word[0] in tag_symbols for word in " ".join(args_text).split())

@@ -12,7 +12,10 @@ from jrnl.plugins import util
 
 PRECONFIG_COMMANDS = frozenset({"version", "diagnostic"})
 POSTCONFIG_COMMANDS = frozenset({"list", "encrypt", "decrypt", "import"})
-DEPRECATED_ALIASES = {"list_deprecated": ("list", "-ls", "--list or --ls")}
+DEPRECATED_ALIASES = {
+    "list_deprecated": ("list", "-ls", "--list or --ls"),
+    "to_deprecated": ("to", "-to", "--to, or use -until as a synonym"),
+}
 
 
 @dataclass
@@ -50,6 +53,10 @@ class ParsedArgs:
     tags: bool = False
     short: bool = False
     filename: str | None = None
+
+    password: str | None = None
+    keychain: bool = True
+    keyring_available: bool = True
 
     @property
     def is_preconfig_command(self) -> bool:
@@ -158,6 +165,9 @@ def _namespace_to_parsed_args(ns: argparse.Namespace) -> ParsedArgs:
         tags=getattr(ns, "tags", False),
         short=getattr(ns, "short", False),
         filename=getattr(ns, "filename", None),
+        password=getattr(ns, "password", None),
+        keychain=getattr(ns, "keychain", True),
+        keyring_available=getattr(ns, "keyring_available", True),
     )
 
 

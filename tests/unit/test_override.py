@@ -52,6 +52,9 @@ def expected_args(overrides):
         "exclude_tagged": False,
         "change_time": None,
         "template": None,
+        "password": None,
+        "keychain": True,
+        "keyring_available": True,
     }
     return ParsedArgs(**{**defaults, **overrides})
 

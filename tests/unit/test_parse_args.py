@@ -47,6 +47,9 @@ def expected_args(**kwargs):
         "text": [],
         "config_override": [],
         "config_file_path": "",
+        "password": None,
+        "keychain": True,
+        "keyring_available": True,
     }
     return {**default_args, **kwargs}
 
