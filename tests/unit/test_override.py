@@ -1,10 +1,9 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
-from argparse import Namespace
-
 import pytest
 
+from jrnl.args import ParsedArgs
 from jrnl.override import _convert_dots_to_list
 from jrnl.override import _get_config_node
 from jrnl.override import _get_key_and_value_from_pair
@@ -24,8 +23,9 @@ def minimal_config():
 
 
 def expected_args(overrides):
-    default_args = {
-        "contains": None,
+    defaults = {
+        "command": None,
+        "used_deprecated_alias": None,
         "debug": False,
         "delete": False,
         "edit": False,
@@ -39,8 +39,6 @@ def expected_args(overrides):
         "filename": None,
         "limit": None,
         "on_date": None,
-        "preconfig_cmd": None,
-        "postconfig_cmd": None,
         "short": False,
         "starred": False,
         "start_date": None,
@@ -48,8 +46,14 @@ def expected_args(overrides):
         "tags": False,
         "text": [],
         "config_override": [],
+        "config_file_path": "",
+        "contains": None,
+        "exclude_starred": False,
+        "exclude_tagged": False,
+        "change_time": None,
+        "template": None,
     }
-    return Namespace(**{**default_args, **overrides})
+    return ParsedArgs(**{**defaults, **overrides})
 
 
 def test_apply_override(minimal_config):

@@ -4,17 +4,66 @@
 import argparse
 import re
 import textwrap
+from dataclasses import dataclass, field
 
-from jrnl.commands import postconfig_decrypt
-from jrnl.commands import postconfig_encrypt
-from jrnl.commands import postconfig_import
-from jrnl.commands import postconfig_list
-from jrnl.commands import preconfig_diagnostic
-from jrnl.commands import preconfig_version
-from jrnl.output import deprecated_cmd
 from jrnl.plugins import EXPORT_FORMATS
 from jrnl.plugins import IMPORT_FORMATS
 from jrnl.plugins import util
+
+PRECONFIG_COMMANDS = frozenset({"version", "diagnostic"})
+POSTCONFIG_COMMANDS = frozenset({"list", "encrypt", "decrypt", "import"})
+DEPRECATED_ALIASES = {"list_deprecated": ("list", "-ls", "--list or --ls")}
+
+
+@dataclass
+class ParsedArgs:
+    command: str | None = None
+    used_deprecated_alias: str | None = None
+    debug: bool = False
+    config_file_path: str = ""
+    config_override: list[list[str]] = field(default_factory=list)
+
+    text: list[str] = field(default_factory=list)
+    template: str | None = None
+
+    on_date: str | None = None
+    today_in_history: bool = False
+    month: str | None = None
+    day: str | None = None
+    year: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    contains: list[str] | None = None
+    strict: bool = False
+    starred: bool = False
+    tagged: bool = False
+    limit: int | None = None
+    excluded: list[str] = field(default_factory=list)
+    exclude_starred: bool = False
+    exclude_tagged: bool = False
+
+    edit: bool = False
+    delete: bool = False
+    change_time: str | None = None
+
+    export: str | bool = False
+    tags: bool = False
+    short: bool = False
+    filename: str | None = None
+
+    @property
+    def is_preconfig_command(self) -> bool:
+        return self.command in PRECONFIG_COMMANDS
+
+    @property
+    def is_postconfig_command(self) -> bool:
+        return self.command in POSTCONFIG_COMMANDS or self.command in DEPRECATED_ALIASES
+
+    @property
+    def effective_command(self) -> str | None:
+        if self.command in DEPRECATED_ALIASES:
+            return DEPRECATED_ALIASES[self.command][0]
+        return self.command
 
 
 class WrappingFormatter(argparse.RawTextHelpFormatter):
@@ -65,7 +114,54 @@ def parse_not_arg(
     return parsed_args
 
 
-def parse_args(args: list[str] = []) -> argparse.Namespace:
+def _namespace_to_parsed_args(ns: argparse.Namespace) -> ParsedArgs:
+    preconfig_cmd = getattr(ns, "preconfig_cmd", None)
+    postconfig_cmd = getattr(ns, "postconfig_cmd", None)
+
+    command = None
+    used_deprecated_alias = None
+
+    if preconfig_cmd is not None:
+        command = preconfig_cmd
+    elif postconfig_cmd is not None:
+        command = postconfig_cmd
+        if command in DEPRECATED_ALIASES:
+            used_deprecated_alias = DEPRECATED_ALIASES[command][1]
+
+    return ParsedArgs(
+        command=command,
+        used_deprecated_alias=used_deprecated_alias,
+        debug=getattr(ns, "debug", False),
+        config_file_path=getattr(ns, "config_file_path", ""),
+        config_override=getattr(ns, "config_override", []),
+        text=getattr(ns, "text", []),
+        template=getattr(ns, "template", None),
+        on_date=getattr(ns, "on_date", None),
+        today_in_history=getattr(ns, "today_in_history", False),
+        month=getattr(ns, "month", None),
+        day=getattr(ns, "day", None),
+        year=getattr(ns, "year", None),
+        start_date=getattr(ns, "start_date", None),
+        end_date=getattr(ns, "end_date", None),
+        contains=getattr(ns, "contains", None),
+        strict=getattr(ns, "strict", False),
+        starred=getattr(ns, "starred", False),
+        tagged=getattr(ns, "tagged", False),
+        limit=getattr(ns, "limit", None),
+        excluded=getattr(ns, "excluded", []),
+        exclude_starred=getattr(ns, "exclude_starred", False),
+        exclude_tagged=getattr(ns, "exclude_tagged", False),
+        edit=getattr(ns, "edit", False),
+        delete=getattr(ns, "delete", False),
+        change_time=getattr(ns, "change_time", None),
+        export=getattr(ns, "export", False),
+        tags=getattr(ns, "tags", False),
+        short=getattr(ns, "short", False),
+        filename=getattr(ns, "filename", None),
+    )
+
+
+def parse_args(args: list[str] = []) -> ParsedArgs:
     """
     Argument parsing that is doable before the config is available.
     Everything else goes into "text" for later parsing.
@@ -99,28 +195,28 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
     standalone.add_argument(
         "--version",
         action="store_const",
-        const=preconfig_version,
+        const="version",
         dest="preconfig_cmd",
         help="Print version information",
     )
     standalone.add_argument(
         "-v",
         action="store_const",
-        const=preconfig_version,
+        const="version",
         dest="preconfig_cmd",
         help=argparse.SUPPRESS,
     )
     standalone.add_argument(
         "--diagnostic",
         action="store_const",
-        const=preconfig_diagnostic,
+        const="diagnostic",
         dest="preconfig_cmd",
         help=argparse.SUPPRESS,
     )
     standalone.add_argument(
         "--list",
         action="store_const",
-        const=postconfig_list,
+        const="list",
         dest="postconfig_cmd",
         help="""
         List all configured journals.
@@ -133,16 +229,14 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
     standalone.add_argument(
         "--ls",
         action="store_const",
-        const=postconfig_list,
+        const="list",
         dest="postconfig_cmd",
         help=argparse.SUPPRESS,
     )
     standalone.add_argument(
         "-ls",
         action="store_const",
-        const=lambda **kwargs: deprecated_cmd(
-            "-ls", "--list or --ls", callback=postconfig_list, **kwargs
-        ),
+        const="list_deprecated",
         dest="postconfig_cmd",
         help=argparse.SUPPRESS,
     )
@@ -151,7 +245,7 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         help="Encrypt selected journal with a password",
         action="store_const",
         metavar="TYPE",
-        const=postconfig_encrypt,
+        const="encrypt",
         dest="postconfig_cmd",
     )
     standalone.add_argument(
@@ -159,14 +253,14 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         help="Decrypt selected journal and store it in plain text",
         action="store_const",
         metavar="TYPE",
-        const=postconfig_decrypt,
+        const="decrypt",
         dest="postconfig_cmd",
     )
     standalone.add_argument(
         "--import",
         action="store_const",
         metavar="TYPE",
-        const=postconfig_import,
+        const="import",
         dest="postconfig_cmd",
         help=f"""
         Import entries from another journal.
@@ -450,7 +544,7 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
     # Handle '-123' as a shortcut for '-n 123'
     num = re.compile(r"^-(\d+)$")
     args = [num.sub(r"-n \1", arg) for arg in args]
-    parsed_args = parser.parse_intermixed_args(args)
-    parsed_args = parse_not_arg(args, parsed_args, parser)
+    ns = parser.parse_intermixed_args(args)
+    ns = parse_not_arg(args, ns, parser)
 
-    return parsed_args
+    return _namespace_to_parsed_args(ns)

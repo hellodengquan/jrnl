@@ -3,13 +3,21 @@
 
 import logging
 import sys
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from jrnl import install
 from jrnl import plugins
 from jrnl import time
+from jrnl.args import DEPRECATED_ALIASES
+from jrnl.args import ParsedArgs
+from jrnl.commands import postconfig_decrypt
+from jrnl.commands import postconfig_encrypt
+from jrnl.commands import postconfig_import
+from jrnl.commands import postconfig_list
+from jrnl.commands import preconfig_diagnostic
+from jrnl.commands import preconfig_version
 from jrnl.config import DEFAULT_JOURNAL_KEY
-from jrnl.config import get_config_path
 from jrnl.config import get_journal_name
 from jrnl.config import scope_config
 from jrnl.editor import get_text_from_editor
@@ -20,18 +28,73 @@ from jrnl.journals import open_journal
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
+from jrnl.output import deprecated_cmd
 from jrnl.output import print_msg
 from jrnl.output import print_msgs
 from jrnl.override import apply_overrides
 
 if TYPE_CHECKING:
-    from argparse import Namespace
-
     from jrnl.journals import Entry
     from jrnl.journals import Journal
 
 
-def run(args: "Namespace"):
+@dataclass
+class RuntimeContext:
+    args: ParsedArgs
+    config: dict
+    original_config: dict
+    journal_name: str = DEFAULT_JOURNAL_KEY
+    effective_text: list[str] = field(default_factory=list)
+    journal: "Journal | None" = None
+    old_entries: list["Entry"] = field(default_factory=list)
+
+
+_PRECONFIG_DISPATCH = {
+    "version": preconfig_version,
+    "diagnostic": preconfig_diagnostic,
+}
+
+_POSTCONFIG_DISPATCH = {
+    "list": postconfig_list,
+    "encrypt": postconfig_encrypt,
+    "decrypt": postconfig_decrypt,
+    "import": postconfig_import,
+}
+
+
+def _dispatch_preconfig(command: str, parsed_args: ParsedArgs):
+    handler = _PRECONFIG_DISPATCH.get(command)
+    if handler is None:
+        raise JrnlException(
+            Message(
+                MsgText.UncaughtException,
+                MsgStyle.ERROR,
+                {"name": "UnknownCommand", "exception": f"Unknown preconfig command: {command}"},
+            )
+        )
+    return handler(parsed_args)
+
+
+def _dispatch_postconfig(command: str, ctx: RuntimeContext):
+    effective = command
+    if command in DEPRECATED_ALIASES:
+        _, old_alias, new_alias = DEPRECATED_ALIASES[command]
+        deprecated_cmd(old_alias, new_alias)
+        effective = DEPRECATED_ALIASES[command][0]
+
+    handler = _POSTCONFIG_DISPATCH.get(effective)
+    if handler is None:
+        raise JrnlException(
+            Message(
+                MsgText.UncaughtException,
+                MsgStyle.ERROR,
+                {"name": "UnknownCommand", "exception": f"Unknown postconfig command: {effective}"},
+            )
+        )
+    return handler(ctx)
+
+
+def run(parsed_args: ParsedArgs):
     """
     Flow:
     1. Run standalone command if it doesn't need config (help, version, etc), then exit
@@ -43,93 +106,89 @@ def run(args: "Namespace"):
     7. Profit
     """
 
-    # Run command if possible before config is available
-    if callable(args.preconfig_cmd):
-        return args.preconfig_cmd(args)
+    if parsed_args.is_preconfig_command:
+        return _dispatch_preconfig(parsed_args.command, parsed_args)
 
-    # Load the config, and extract journal name
-    config = install.load_or_install_jrnl(args.config_file_path)
+    config = install.load_or_install_jrnl(parsed_args.config_file_path)
     original_config = config.copy()
 
-    # Apply config overrides
-    config = apply_overrides(args, config)
+    config = apply_overrides(parsed_args, config)
 
-    args = get_journal_name(args, config)
-    config = scope_config(config, args.journal_name)
+    journal_name, effective_text = get_journal_name(parsed_args, config)
+    config = scope_config(config, journal_name)
 
-    # Run post-config command now that config is ready
-    if callable(args.postconfig_cmd):
-        return args.postconfig_cmd(
-            args=args, config=config, original_config=original_config
+    if parsed_args.is_postconfig_command:
+        ctx = RuntimeContext(
+            args=parsed_args,
+            config=config,
+            original_config=original_config,
+            journal_name=journal_name,
+            effective_text=effective_text,
         )
+        return _dispatch_postconfig(parsed_args.command, ctx)
 
-    # --- All the standalone commands are now done --- #
+    journal = open_journal(journal_name, config)
 
-    # Get the journal we're going to be working with
-    journal = open_journal(args.journal_name, config)
+    ctx = RuntimeContext(
+        args=parsed_args,
+        config=config,
+        original_config=original_config,
+        journal_name=journal_name,
+        effective_text=effective_text,
+        journal=journal,
+        old_entries=journal.entries,
+    )
 
-    kwargs = {
-        "args": args,
-        "config": config,
-        "journal": journal,
-        "old_entries": journal.entries,
-    }
-
-    if _is_append_mode(**kwargs):
-        append_mode(**kwargs)
+    if _is_append_mode(ctx):
+        append_mode(ctx)
         return
 
-    # If not append mode, then we're in search mode (only 2 modes exist)
-    search_mode(**kwargs)
+    search_mode(ctx)
     entries_found_count = len(journal)
-    _print_entries_found_count(entries_found_count, args)
+    _print_entries_found_count(entries_found_count, ctx.args)
 
-    # Actions
-    _perform_actions_on_search_results(**kwargs)
+    _perform_actions_on_search_results(ctx)
 
-    if entries_found_count != 0 and _has_action_args(args):
+    if entries_found_count != 0 and _has_action_args(ctx.args):
         _print_changed_counts(journal)
     else:
-        # display only occurs if no other action occurs
-        _display_search_results(**kwargs)
+        _display_search_results(ctx)
 
 
-def _perform_actions_on_search_results(**kwargs):
-    args = kwargs["args"]
+def _perform_actions_on_search_results(ctx: RuntimeContext):
+    args = ctx.args
 
-    # Perform actions (if needed)
     if args.change_time:
-        _change_time_search_results(**kwargs)
+        _change_time_search_results(ctx)
 
     if args.delete:
-        _delete_search_results(**kwargs)
+        _delete_search_results(ctx)
 
-    # open results in editor (if `--edit` was used)
     if args.edit:
-        _edit_search_results(**kwargs)
+        _edit_search_results(ctx)
 
 
-def _is_append_mode(args: "Namespace", config: dict, **kwargs) -> bool:
+def _is_append_mode(ctx: RuntimeContext) -> bool:
     """Determines if we are in append mode (as opposed to search mode)"""
-    # Are any search filters present? If so, then search mode.
+    args = ctx.args
+    config = ctx.config
+
     append_mode = (
         not _has_search_args(args)
         and not _has_action_args(args)
         and not _has_display_args(args)
     )
 
-    # Might be writing and want to move to editor part of the way through
-    if args.edit and args.text:
+    if args.edit and ctx.effective_text:
         append_mode = True
 
-    # If the text is entirely tags, then we are also searching (not writing)
-    if append_mode and args.text and _has_only_tags(config["tagsymbols"], args.text):
+    if append_mode and ctx.effective_text and _has_only_tags(config["tagsymbols"], ctx.effective_text):
         append_mode = False
 
     return append_mode
 
 
-def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -> None:
+def append_mode(ctx: RuntimeContext) -> None:
     """
     Gets input from the user to write to the journal
     0. Check for a template passed as an argument, or in the global config
@@ -141,11 +200,15 @@ def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -
     """
     logging.debug("Append mode: starting")
 
+    args = ctx.args
+    config = ctx.config
+    journal = ctx.journal
+
     template_text = _get_template(args, config)
 
-    if args.text:
-        logging.debug(f"Append mode: cli text detected: {args.text}")
-        raw = " ".join(args.text).strip()
+    if ctx.effective_text:
+        logging.debug(f"Append mode: cli text detected: {ctx.effective_text}")
+        raw = " ".join(ctx.effective_text).strip()
         if args.edit:
             raw = _write_in_editor(config, raw)
     elif not sys.stdin.isatty():
@@ -163,15 +226,15 @@ def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -
         raise JrnlException(Message(MsgText.NoTextReceived, MsgStyle.NORMAL))
 
     logging.debug(
-        f"Append mode: appending raw text to journal '{args.journal_name}': {raw}"
+        f"Append mode: appending raw text to journal '{ctx.journal_name}': {raw}"
     )
     journal.new_entry(raw)
-    if args.journal_name != DEFAULT_JOURNAL_KEY:
+    if ctx.journal_name != DEFAULT_JOURNAL_KEY:
         print_msg(
             Message(
                 MsgText.JournalEntryAdded,
                 MsgStyle.NORMAL,
-                {"journal_name": args.journal_name},
+                {"journal_name": ctx.journal_name},
             )
         )
     journal.write()
@@ -179,7 +242,6 @@ def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -
 
 
 def _get_template(args, config) -> str:
-    # Read template file and pass as raw text into the composer
     logging.debug(
         "Get template:\n"
         f"--template: {args.template}\n"
@@ -195,20 +257,22 @@ def _get_template(args, config) -> str:
     return template_text
 
 
-def search_mode(args: "Namespace", journal: "Journal", **kwargs) -> None:
+def search_mode(ctx: RuntimeContext) -> None:
     """
     Search for entries in a journal, and return the
     results. If no search args, then return all results
     """
     logging.debug("Search mode: starting")
 
-    # If no search args, then return all results (don't filter anything)
-    if not _has_search_args(args) and not _has_display_args(args) and not args.text:
+    args = ctx.args
+    journal = ctx.journal
+
+    if not _has_search_args(args) and not _has_display_args(args) and not ctx.effective_text:
         logging.debug("Search mode: has no search args")
         return
 
     logging.debug("Search mode: has search args")
-    _filter_journal_entries(args, journal)
+    _filter_journal_entries(ctx)
 
 
 def _write_in_editor(config: dict, prepopulated_text: str | None = None) -> str:
@@ -221,8 +285,11 @@ def _write_in_editor(config: dict, prepopulated_text: str | None = None) -> str:
     return raw
 
 
-def _filter_journal_entries(args: "Namespace", journal: "Journal", **kwargs) -> None:
+def _filter_journal_entries(ctx: RuntimeContext) -> None:
     """Filter journal entries in-place based upon search args"""
+    args = ctx.args
+    journal = ctx.journal
+
     if args.on_date:
         args.start_date = args.end_date = args.on_date
 
@@ -232,7 +299,7 @@ def _filter_journal_entries(args: "Namespace", journal: "Journal", **kwargs) -> 
         args.month = now.month
 
     journal.filter(
-        tags=args.text,
+        tags=ctx.effective_text,
         month=args.month,
         day=args.day,
         year=args.year,
@@ -249,7 +316,7 @@ def _filter_journal_entries(args: "Namespace", journal: "Journal", **kwargs) -> 
     journal.limit(args.limit)
 
 
-def _print_entries_found_count(count: int, args: "Namespace") -> None:
+def _print_entries_found_count(count: int, args: ParsedArgs) -> None:
     logging.debug(f"count: {count}")
     if count == 0:
         if args.edit or args.change_time:
@@ -260,7 +327,6 @@ def _print_entries_found_count(count: int, args: "Namespace") -> None:
             print_msg(Message(MsgText.NoEntriesFound, MsgStyle.NORMAL))
         return
     elif args.limit and args.limit == count:
-        # Don't show count if the user expects a limited number of results
         logging.debug("args.limit is true-ish")
         return
 
@@ -276,14 +342,18 @@ def _other_entries(journal: "Journal", entries: list["Entry"]) -> list["Entry"]:
     return [e for e in entries if e not in journal.entries]
 
 
-def _edit_search_results(
-    config: dict, journal: "Journal", old_entries: list["Entry"], **kwargs
-) -> None:
+def _edit_search_results(ctx: RuntimeContext) -> None:
     """
     1. Send the given journal entries to the user-configured editor
     2. Print out stats on any modifications to journal
     3. Write modifications to journal
     """
+    from jrnl.config import get_config_path
+
+    config = ctx.config
+    journal = ctx.journal
+    old_entries = ctx.old_entries
+
     if not config["editor"]:
         raise JrnlException(
             Message(
@@ -293,10 +363,8 @@ def _edit_search_results(
             )
         )
 
-    # separate entries we are not editing
     other_entries = _other_entries(journal, old_entries)
 
-    # Send user to the editor
     try:
         edited = get_text_from_editor(config, journal.editable_str())
     except JrnlException as e:
@@ -309,7 +377,6 @@ def _edit_search_results(
 
     journal.parse_editable_str(edited)
 
-    # Put back entries we separated earlier, sort, and write the journal
     journal.entries += other_entries
     journal.sort()
     journal.write()
@@ -353,9 +420,10 @@ def _get_predit_stats(journal: "Journal") -> dict[str, int]:
     return {"count": len(journal)}
 
 
-def _delete_search_results(
-    journal: "Journal", old_entries: list["Entry"], **kwargs
-) -> None:
+def _delete_search_results(ctx: RuntimeContext) -> None:
+    journal = ctx.journal
+    old_entries = ctx.old_entries
+
     entries_to_delete = journal.prompt_action_entries(MsgText.DeleteEntryQuestion)
 
     journal.entries = old_entries
@@ -367,14 +435,13 @@ def _delete_search_results(
 
 
 def _change_time_search_results(
-    args: "Namespace",
-    journal: "Journal",
-    old_entries: list["Entry"],
+    ctx: RuntimeContext,
     no_prompt: bool = False,
-    **kwargs,
 ) -> None:
-    # separate entries we are not editing
-    # @todo if there's only 1, don't prompt
+    args = ctx.args
+    journal = ctx.journal
+    old_entries = ctx.old_entries
+
     entries_to_change = journal.prompt_action_entries(MsgText.ChangeTimeEntryQuestion)
 
     if entries_to_change:
@@ -385,30 +452,31 @@ def _change_time_search_results(
         journal.write()
 
 
-def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> None:
+def _display_search_results(ctx: RuntimeContext) -> None:
+    journal = ctx.journal
+
     if len(journal) == 0:
         return
 
-    # Get export format from config file if not provided at the command line
-    args.export = args.export or kwargs["config"].get("display_format")
+    export = ctx.args.export or ctx.config.get("display_format")
 
-    if args.tags:
+    if ctx.args.tags:
         print(plugins.get_exporter("tags").export(journal))
 
-    elif args.short or args.export == "short":
+    elif ctx.args.short or export == "short":
         print(journal.pprint(short=True))
 
-    elif args.export == "pretty":
+    elif export == "pretty":
         print(journal.pprint())
 
-    elif args.export:
-        exporter = plugins.get_exporter(args.export)
-        print(exporter.export(journal, args.filename))
+    elif export:
+        exporter = plugins.get_exporter(export)
+        print(exporter.export(journal, ctx.args.filename))
     else:
         print(journal.pprint())
 
 
-def _has_search_args(args: "Namespace") -> bool:
+def _has_search_args(args: ParsedArgs) -> bool:
     """Looking for arguments that filter a journal"""
     return any(
         (
@@ -426,12 +494,12 @@ def _has_search_args(args: "Namespace") -> bool:
             args.on_date,
             args.starred,
             args.start_date,
-            args.strict,  # -and
+            args.strict,
         )
     )
 
 
-def _has_action_args(args: "Namespace") -> bool:
+def _has_action_args(args: ParsedArgs) -> bool:
     return any(
         (
             args.change_time,
@@ -441,15 +509,15 @@ def _has_action_args(args: "Namespace") -> bool:
     )
 
 
-def _has_display_args(args: "Namespace") -> bool:
+def _has_display_args(args: ParsedArgs) -> bool:
     return any(
         (
             args.tags,
             args.short,
-            args.export,  # --format
+            args.export,
         )
     )
 
 
-def _has_only_tags(tag_symbols: str, args_text: str) -> bool:
+def _has_only_tags(tag_symbols: str, args_text: list[str]) -> bool:
     return all(word[0] in tag_symbols for word in " ".join(args_text).split())

@@ -8,6 +8,7 @@ import traceback
 from rich.logging import RichHandler
 
 from jrnl import controller
+from jrnl.args import ParsedArgs
 from jrnl.args import parse_args
 from jrnl.exception import JrnlException
 from jrnl.messages import Message
@@ -37,11 +38,11 @@ def run(manual_args: list[str] | None = None) -> int:
         if manual_args is None:
             manual_args = sys.argv[1:]
 
-        args = parse_args(manual_args)
-        configure_logger(args.debug)
-        logging.debug("Parsed args:\n%s", args)
+        parsed_args: ParsedArgs = parse_args(manual_args)
+        configure_logger(parsed_args.debug)
+        logging.debug("Parsed args:\n%s", parsed_args)
 
-        status_code = controller.run(args)
+        status_code = controller.run(parsed_args)
 
     except JrnlException as e:
         status_code = 1
@@ -58,11 +59,10 @@ def run(manual_args: list[str] | None = None) -> int:
         )
 
     except Exception as e:
-        # uncaught exception
         status_code = 1
         debug = False
         try:
-            if args.debug:  # type: ignore
+            if parsed_args.debug:
                 debug = True
         except NameError:
             # This should only happen when the exception

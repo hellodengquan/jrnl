@@ -1,7 +1,7 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
-import argparse
+from jrnl.args import ParsedArgs
 import logging
 import os
 from typing import Any
@@ -190,27 +190,29 @@ def update_config(
         config.update(new_config)
 
 
-def get_journal_name(args: argparse.Namespace, config: dict) -> argparse.Namespace:
-    args.journal_name = DEFAULT_JOURNAL_KEY
+def get_journal_name(
+    parsed_args: ParsedArgs, config: dict
+) -> tuple[str, list[str]]:
+    journal_name = DEFAULT_JOURNAL_KEY
+    remaining_text = parsed_args.text
 
-    # The first arg might be a journal name
-    if args.text:
-        potential_journal_name = args.text[0]
+    if parsed_args.text:
+        potential_journal_name = parsed_args.text[0]
         if potential_journal_name[-1] == ":":
             potential_journal_name = potential_journal_name[0:-1]
 
         if potential_journal_name in config["journals"]:
-            args.journal_name = potential_journal_name
-            args.text = args.text[1:]
+            journal_name = potential_journal_name
+            remaining_text = parsed_args.text[1:]
 
-    logging.debug("Using journal name: %s", args.journal_name)
-    return args
+    logging.debug("Using journal name: %s", journal_name)
+    return journal_name, remaining_text
 
 
 def cmd_requires_valid_journal_name(func: Callable) -> Callable:
-    def wrapper(args: argparse.Namespace, config: dict, original_config: dict):
-        validate_journal_name(args.journal_name, config)
-        func(args=args, config=config, original_config=original_config)
+    def wrapper(ctx):
+        validate_journal_name(ctx.journal_name, ctx.config)
+        return func(ctx)
 
     return wrapper
 

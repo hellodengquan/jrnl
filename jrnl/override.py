@@ -1,27 +1,19 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
-from typing import TYPE_CHECKING
-
+from jrnl.args import ParsedArgs
 from jrnl.config import make_yaml_valid_dict
 from jrnl.config import update_config
 
-if TYPE_CHECKING:
-    from argparse import Namespace
 
-
-# import logging
-def apply_overrides(args: "Namespace", base_config: dict) -> dict:
+def apply_overrides(parsed_args: ParsedArgs, base_config: dict) -> dict:
     """Unpack CLI provided overrides into the configuration tree.
 
-    :param overrides: List of configuration key-value pairs collected from the CLI
-    :type overrides: list
+    :param parsed_args: ParsedArgs containing config_override from the CLI
     :param base_config: Configuration Loaded from the saved YAML
-    :type base_config: dict
     :return: Configuration to be used during runtime with the overrides applied
-    :rtype: dict
     """
-    overrides = vars(args).get("config_override")
+    overrides = parsed_args.config_override
     if not overrides:
         return base_config
 
@@ -45,7 +37,7 @@ def _get_key_and_value_from_pair(pairs: dict) -> tuple:
 
 def _convert_dots_to_list(key_as_dots: str) -> list[str]:
     keys = key_as_dots.split(".")
-    keys = [k for k in keys if k != ""]  # remove empty elements
+    keys = [k for k in keys if k != ""]
     return keys
 
 

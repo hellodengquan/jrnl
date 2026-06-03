@@ -2,6 +2,7 @@
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
 import shlex
+from dataclasses import asdict
 
 import pytest
 
@@ -12,11 +13,13 @@ from jrnl.config import make_yaml_valid_dict
 def cli_as_dict(str):
     cli = shlex.split(str)
     args = parse_args(cli)
-    return vars(args)
+    return asdict(args)
 
 
 def expected_args(**kwargs):
     default_args = {
+        "command": None,
+        "used_deprecated_alias": None,
         "contains": None,
         "debug": False,
         "delete": False,
@@ -34,8 +37,6 @@ def expected_args(**kwargs):
         "filename": None,
         "limit": None,
         "on_date": None,
-        "preconfig_cmd": None,
-        "postconfig_cmd": None,
         "short": False,
         "starred": False,
         "start_date": None,
@@ -74,11 +75,7 @@ def test_change_time_alone():
 
 
 def test_diagnostic_alone():
-    from jrnl.commands import preconfig_diagnostic
-
-    assert cli_as_dict("--diagnostic") == expected_args(
-        preconfig_cmd=preconfig_diagnostic
-    )
+    assert cli_as_dict("--diagnostic") == expected_args(command="diagnostic")
 
 
 def test_edit_alone():
@@ -86,15 +83,11 @@ def test_edit_alone():
 
 
 def test_encrypt_alone():
-    from jrnl.commands import postconfig_encrypt
-
-    assert cli_as_dict("--encrypt") == expected_args(postconfig_cmd=postconfig_encrypt)
+    assert cli_as_dict("--encrypt") == expected_args(command="encrypt")
 
 
 def test_decrypt_alone():
-    from jrnl.commands import postconfig_decrypt
-
-    assert cli_as_dict("--decrypt") == expected_args(postconfig_cmd=postconfig_decrypt)
+    assert cli_as_dict("--decrypt") == expected_args(command="decrypt")
 
 
 def test_end_date_alone():
@@ -143,9 +136,7 @@ def test_export_alone():
 
 
 def test_import_alone():
-    from jrnl.commands import postconfig_import
-
-    assert cli_as_dict("--import") == expected_args(postconfig_cmd=postconfig_import)
+    assert cli_as_dict("--import") == expected_args(command="import")
 
 
 def test_file_flag_alone():
@@ -166,9 +157,13 @@ def test_limit_shorthand_alone():
 
 
 def test_list_alone():
-    from jrnl.commands import postconfig_list
+    assert cli_as_dict("--ls") == expected_args(command="list")
 
-    assert cli_as_dict("--ls") == expected_args(postconfig_cmd=postconfig_list)
+
+def test_ls_deprecated():
+    assert cli_as_dict("-ls") == expected_args(
+        command="list_deprecated", used_deprecated_alias="-ls"
+    )
 
 
 def test_on_date_alone():
@@ -224,9 +219,11 @@ def test_text_alone():
 
 
 def test_version_alone():
-    from jrnl.commands import preconfig_version
+    assert cli_as_dict("--version") == expected_args(command="version")
 
-    assert cli_as_dict("--version") == expected_args(preconfig_cmd=preconfig_version)
+
+def test_version_shorthand():
+    assert cli_as_dict("-v") == expected_args(command="version")
 
 
 def test_editor_override():

@@ -11,11 +11,13 @@ run.
 2. "postconfig" commands require to config to have already been loaded, parsed, and
    scoped before they can be run.
 
+All command functions accept a RuntimeContext, which carries both the parsed CLI
+arguments and the runtime state (config, journal name, etc.).
+
 Also, please note that all (non-builtin) imports should be scoped to each function to
 avoid any possible overhead for these standalone commands.
 """
 
-import argparse
 import logging
 import platform
 import sys
@@ -28,7 +30,7 @@ from jrnl.messages import MsgText
 from jrnl.output import print_msg
 
 
-def preconfig_diagnostic(_) -> None:
+def preconfig_diagnostic(parsed_args) -> None:
     from jrnl import __title__
     from jrnl import __version__
 
@@ -39,7 +41,7 @@ def preconfig_diagnostic(_) -> None:
     )
 
 
-def preconfig_version(_) -> None:
+def preconfig_version(parsed_args) -> None:
     import textwrap
 
     from jrnl import __title__
@@ -59,23 +61,22 @@ def preconfig_version(_) -> None:
     print(output)
 
 
-def postconfig_list(args: argparse.Namespace, config: dict, **_) -> int:
+def postconfig_list(ctx) -> int:
     from jrnl.output import list_journals
 
-    print(list_journals(config, args.export))
+    print(list_journals(ctx.config, ctx.args.export))
 
     return 0
 
 
 @cmd_requires_valid_journal_name
-def postconfig_import(args: argparse.Namespace, config: dict, **_) -> int:
+def postconfig_import(ctx) -> int:
     from jrnl.journals import open_journal
     from jrnl.plugins import get_importer
 
-    # Requires opening the journal
-    journal = open_journal(args.journal_name, config)
+    journal = open_journal(ctx.journal_name, ctx.config)
 
-    format = args.export if args.export else "jrnl"
+    format = ctx.args.export if ctx.args.export else "jrnl"
 
     if (importer := get_importer(format)) is None:
         raise JrnlException(
@@ -86,15 +87,13 @@ def postconfig_import(args: argparse.Namespace, config: dict, **_) -> int:
             )
         )
 
-    importer.import_(journal, args.filename)
+    importer.import_(journal, ctx.args.filename)
 
     return 0
 
 
 @cmd_requires_valid_journal_name
-def postconfig_encrypt(
-    args: argparse.Namespace, config: dict, original_config: dict
-) -> int:
+def postconfig_encrypt(ctx) -> int:
     """
     Encrypt a journal in place, or optionally to a new file
     """
@@ -102,8 +101,7 @@ def postconfig_encrypt(
     from jrnl.install import save_config
     from jrnl.journals import open_journal
 
-    # Open the journal
-    journal = open_journal(args.journal_name, config)
+    journal = open_journal(ctx.journal_name, ctx.config)
 
     if hasattr(journal, "can_be_encrypted") and not journal.can_be_encrypted:
         raise JrnlException(
@@ -111,13 +109,12 @@ def postconfig_encrypt(
                 MsgText.CannotEncryptJournalType,
                 MsgStyle.ERROR,
                 {
-                    "journal_name": args.journal_name,
+                    "journal_name": ctx.journal_name,
                     "journal_type": journal.__class__.__name__,
                 },
             )
         )
 
-    # If journal is encrypted, create new password
     logging.debug("Clearing encryption method...")
 
     if journal.config["encrypt"] is True:
@@ -128,55 +125,51 @@ def postconfig_encrypt(
         journal.config["encrypt"] = True
         journal.encryption_method = None
 
-    journal.write(args.filename)
+    journal.write(ctx.args.filename)
 
     print_msg(
         Message(
             MsgText.JournalEncryptedTo,
             MsgStyle.NORMAL,
-            {"path": args.filename or journal.config["journal"]},
+            {"path": ctx.args.filename or journal.config["journal"]},
         )
     )
 
-    # Update the config, if we encrypted in place
-    if not args.filename:
+    if not ctx.args.filename:
         update_config(
-            original_config, {"encrypt": True}, args.journal_name, force_local=True
+            ctx.original_config, {"encrypt": True}, ctx.journal_name, force_local=True
         )
-        save_config(original_config)
+        save_config(ctx.original_config)
 
     return 0
 
 
 @cmd_requires_valid_journal_name
-def postconfig_decrypt(
-    args: argparse.Namespace, config: dict, original_config: dict
-) -> int:
+def postconfig_decrypt(ctx) -> int:
     """Decrypts to file. If filename is not set, we encrypt the journal file itself."""
     from jrnl.config import update_config
     from jrnl.install import save_config
     from jrnl.journals import open_journal
 
-    journal = open_journal(args.journal_name, config)
+    journal = open_journal(ctx.journal_name, ctx.config)
 
     logging.debug("Clearing encryption method...")
     journal.config["encrypt"] = False
     journal.encryption_method = None
 
-    journal.write(args.filename)
+    journal.write(ctx.args.filename)
     print_msg(
         Message(
             MsgText.JournalDecryptedTo,
             MsgStyle.NORMAL,
-            {"path": args.filename or journal.config["journal"]},
+            {"path": ctx.args.filename or journal.config["journal"]},
         )
     )
 
-    # Update the config, if we decrypted in place
-    if not args.filename:
+    if not ctx.args.filename:
         update_config(
-            original_config, {"encrypt": False}, args.journal_name, force_local=True
+            ctx.original_config, {"encrypt": False}, ctx.journal_name, force_local=True
         )
-        save_config(original_config)
+        save_config(ctx.original_config)
 
     return 0

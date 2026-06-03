@@ -9,6 +9,7 @@ import pytest
 
 import jrnl
 from jrnl.args import parse_args
+from jrnl.controller import RuntimeContext
 from jrnl.controller import _display_search_results
 
 
@@ -19,14 +20,24 @@ def random_string():
 
 @pytest.mark.parametrize("export_format", ["pretty", "short"])
 def test_display_search_results_pretty_short(export_format):
-    mock_args = parse_args(["--format", export_format])
+    parsed_args = parse_args(["--format", export_format])
 
     test_journal = jrnl.journals.Journal()
     test_journal.new_entry("asdf")
 
     test_journal.pprint = mock.Mock()
 
-    _display_search_results(mock_args, test_journal)
+    ctx = RuntimeContext(
+        args=parsed_args,
+        config={},
+        original_config={},
+        journal_name="default",
+        effective_text=[],
+        journal=test_journal,
+        old_entries=test_journal.entries,
+    )
+
+    _display_search_results(ctx)
 
     test_journal.pprint.assert_called_once()
 
@@ -40,7 +51,7 @@ def test_display_search_results_builtin_plugins(
     mock_print, mock_exporter, export_format, random_string
 ):
     test_filename = random_string
-    mock_args = parse_args(["--format", export_format, "--file", test_filename])
+    parsed_args = parse_args(["--format", export_format, "--file", test_filename])
 
     test_journal = jrnl.journals.Journal()
     test_journal.new_entry("asdf")
@@ -48,7 +59,17 @@ def test_display_search_results_builtin_plugins(
     mock_export = mock.Mock()
     mock_exporter.return_value.export = mock_export
 
-    _display_search_results(mock_args, test_journal)
+    ctx = RuntimeContext(
+        args=parsed_args,
+        config={},
+        original_config={},
+        journal_name="default",
+        effective_text=[],
+        journal=test_journal,
+        old_entries=test_journal.entries,
+    )
+
+    _display_search_results(ctx)
 
     mock_exporter.assert_called_once_with(export_format)
     mock_export.assert_called_once_with(test_journal, test_filename)
