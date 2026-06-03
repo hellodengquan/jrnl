@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING
 from jrnl import install
 from jrnl import plugins
 from jrnl import time
-from jrnl.args import SEARCH_FIELDS
-from jrnl.commands import postconfig_delete_view
-from jrnl.commands import postconfig_save_view
 from jrnl.config import DEFAULT_JOURNAL_KEY
 from jrnl.config import get_config_path
 from jrnl.config import get_journal_name
@@ -26,7 +23,10 @@ from jrnl.messages import MsgText
 from jrnl.output import print_msg
 from jrnl.output import print_msgs
 from jrnl.override import apply_overrides
+from jrnl.search_fields import get_search_fields
 from jrnl.views import apply_view
+from jrnl.views import postconfig_delete_view
+from jrnl.views import postconfig_save_view
 
 if TYPE_CHECKING:
     from argparse import Namespace
@@ -427,7 +427,7 @@ def _has_search_args(args: "Namespace") -> bool:
     """Looking for arguments that filter a journal"""
     return any(
         getattr(args, field, None)
-        for field in SEARCH_FIELDS
+        for field in get_search_fields()
         if field != "text"
     )
 

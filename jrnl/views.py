@@ -1,23 +1,23 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+import argparse
 import os
 from argparse import Namespace
 
 import xdg.BaseDirectory
 from ruamel.yaml import YAML
 
-from jrnl.args import get_search_fields
 from jrnl.exception import JrnlException
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
+from jrnl.output import print_msg
 from jrnl.prompt import yesno
+from jrnl.search_fields import get_search_fields
 
 VIEWS_FILE = "views.yaml"
 XDG_RESOURCE = "jrnl"
-
-SEARCH_FIELDS = get_search_fields()
 
 
 def get_views_path() -> str:
@@ -122,7 +122,7 @@ def apply_view(name: str, args: Namespace) -> None:
 
 def extract_search_filters(args: Namespace) -> dict:
     filters = {}
-    for field in SEARCH_FIELDS:
+    for field in get_search_fields():
         value = getattr(args, field, None)
         if value is not None and value is not False and value != []:
             filters[field] = value
@@ -137,3 +137,57 @@ def list_views_str(views: dict) -> str:
     if not views:
         return "  (no views saved)"
     return "\n".join(f"  {name}" for name in sorted(views.keys()))
+
+
+def postconfig_save_view(args: argparse.Namespace, config: dict, **_) -> int:
+    saved = save_view(args.save_view, args)
+    if saved:
+        print_msg(
+            Message(
+                MsgText.ViewSaved,
+                MsgStyle.NORMAL,
+                {"name": args.save_view},
+            )
+        )
+    else:
+        print_msg(
+            Message(
+                MsgText.ViewSaveCancelled,
+                MsgStyle.NORMAL,
+                {"name": args.save_view},
+            )
+        )
+    return 0
+
+
+def postconfig_delete_view(args: argparse.Namespace, **kwargs) -> int:
+    delete_view(args.delete_view)
+    print_msg(
+        Message(
+            MsgText.ViewDeleted,
+            MsgStyle.NORMAL,
+            {"name": args.delete_view},
+        )
+    )
+    return 0
+
+
+def postconfig_list_views(args: argparse.Namespace, **kwargs) -> int:
+    views = list_views()
+    print_msg(Message(MsgText.ViewsListHeader, MsgStyle.NORMAL))
+
+    if not views:
+        print("  (no views saved)")
+        return 0
+
+    for name in sorted(views.keys()):
+        filters = views[name]
+        filters_str = ", ".join(f"{k}={v}" for k, v in filters.items())
+        print_msg(
+            Message(
+                MsgText.ViewDetails,
+                MsgStyle.NORMAL,
+                {"name": name, "filters": filters_str},
+            )
+        )
+    return 0

@@ -6,42 +6,17 @@ import re
 import textwrap
 
 from jrnl.commands import postconfig_decrypt
-from jrnl.commands import postconfig_delete_view
 from jrnl.commands import postconfig_encrypt
 from jrnl.commands import postconfig_import
 from jrnl.commands import postconfig_list
-from jrnl.commands import postconfig_list_views
-from jrnl.commands import postconfig_save_view
 from jrnl.commands import preconfig_diagnostic
 from jrnl.commands import preconfig_version
 from jrnl.output import deprecated_cmd
 from jrnl.plugins import EXPORT_FORMATS
 from jrnl.plugins import IMPORT_FORMATS
 from jrnl.plugins import util
-
-SEARCH_FIELDS = [
-    "contains",
-    "tagged",
-    "excluded",
-    "exclude_starred",
-    "exclude_tagged",
-    "end_date",
-    "today_in_history",
-    "month",
-    "day",
-    "year",
-    "limit",
-    "on_date",
-    "starred",
-    "start_date",
-    "strict",
-    "text",
-]
-
-
-def get_search_fields() -> list[str]:
-    """Return the list of search field names for view filtering."""
-    return list(SEARCH_FIELDS)
+from jrnl.search_fields import register as register_search_field
+from jrnl.views import postconfig_list_views
 
 
 class WrappingFormatter(argparse.RawTextHelpFormatter):
@@ -90,6 +65,13 @@ def parse_not_arg(
         parser.error("argument -not: expected 1 argument")
 
     return parsed_args
+
+
+def _add_search_arg(group, *args, **kwargs):
+    """Add an argument to a group and register its dest as a search field."""
+    action = group.add_argument(*args, **kwargs)
+    register_search_field(action.dest)
+    return action
 
 
 def parse_args(args: list[str] = []) -> argparse.Namespace:
@@ -237,7 +219,7 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
     composing = parser.add_argument_group(
         "Writing", textwrap.dedent(compose_msg).strip()
     )
-    composing.add_argument("text", metavar="", nargs="*")
+    _add_search_arg(composing, "text", metavar="", nargs="*")
     composing.add_argument(
         "--template",
         dest="template",
@@ -249,47 +231,54 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         "To find entries from your journal, use any combination of the below filters."
     )
     reading = parser.add_argument_group("Searching", textwrap.dedent(read_msg))
-    reading.add_argument(
-        "-on", dest="on_date", metavar="DATE", help="Show entries on this date"
+    _add_search_arg(
+        reading, "-on", dest="on_date", metavar="DATE", help="Show entries on this date"
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-today-in-history",
         dest="today_in_history",
         action="store_true",
         help="Show entries of today over the years",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-month",
         dest="month",
         metavar="DATE",
         help="Show entries on this month of any year",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-day",
         dest="day",
         metavar="DATE",
         help="Show entries on this day of any month",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-year",
         dest="year",
         metavar="DATE",
         help="Show entries of a specific year",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-from",
         dest="start_date",
         metavar="DATE",
         help="Show entries after, or on, this date",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-to",
         dest="end_date",
         metavar="DATE",
         help="Show entries before, or on, this date (alias: -until)",
     )
     reading.add_argument("-until", dest="end_date", help=argparse.SUPPRESS)
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-contains",
         dest="contains",
         action="append",
@@ -297,26 +286,30 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         help="Show entries containing specific text (put quotes around text with "
         "spaces)",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-and",
         dest="strict",
         action="store_true",
         help='Show only entries that match all conditions, like saying "x AND y" '
         "(default: OR)",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-starred",
         dest="starred",
         action="store_true",
         help="Show only starred entries (marked with *)",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-tagged",
         dest="tagged",
         action="store_true",
         help="Show only entries that have at least one tag",
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-n",
         dest="limit",
         default=None,
@@ -326,7 +319,8 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         nargs="?",
         type=int,
     )
-    reading.add_argument(
+    _add_search_arg(
+        reading,
         "-not",
         dest="excluded",
         nargs="?",
