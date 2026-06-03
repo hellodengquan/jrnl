@@ -59,6 +59,20 @@ def preconfig_version(_) -> None:
     print(output)
 
 
+def preconfig_list_export_profiles(args) -> int:
+    from jrnl.config import load_config
+    from jrnl.export_profiles import list_profiles
+    from jrnl.path import get_config_path
+
+    config_path = args.config_file_path or get_config_path()
+    try:
+        config = load_config(config_path)
+    except FileNotFoundError:
+        config = {}
+    print(list_profiles(config))
+    return 0
+
+
 def postconfig_list(args: argparse.Namespace, config: dict, **_) -> int:
     from jrnl.output import list_journals
 
@@ -179,4 +193,52 @@ def postconfig_decrypt(
         )
         save_config(original_config)
 
+    return 0
+
+
+def postconfig_save_export_profile(
+    args: argparse.Namespace, config: dict, original_config: dict, **_
+) -> int:
+    from jrnl.export_profiles import save_profile
+    from jrnl.messages import Message
+    from jrnl.messages import MsgStyle
+    from jrnl.messages import MsgText
+    from jrnl.output import print_msg
+
+    save_profile(
+        original_config,
+        original_config,
+        args.save_export_profile,
+        export_format=args.export or None,
+        filename=args.filename or None,
+        template=args.template or None,
+    )
+    print_msg(
+        Message(
+            MsgText.ExportProfileSaved,
+            MsgStyle.NORMAL,
+            {"profile_name": args.save_export_profile},
+        )
+    )
+    return 0
+
+
+def postconfig_delete_export_profile(
+    args: argparse.Namespace, config: dict, original_config: dict, **_
+) -> int:
+    from jrnl.export_profiles import delete_profile
+    from jrnl.messages import Message
+    from jrnl.messages import MsgStyle
+    from jrnl.messages import MsgText
+    from jrnl.output import print_msg
+
+    profile_name = args.delete_export_profile
+    delete_profile(original_config, original_config, profile_name)
+    print_msg(
+        Message(
+            MsgText.ExportProfileDeleted,
+            MsgStyle.NORMAL,
+            {"profile_name": profile_name},
+        )
+    )
     return 0

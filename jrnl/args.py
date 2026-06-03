@@ -6,10 +6,13 @@ import re
 import textwrap
 
 from jrnl.commands import postconfig_decrypt
+from jrnl.commands import postconfig_delete_export_profile
 from jrnl.commands import postconfig_encrypt
 from jrnl.commands import postconfig_import
 from jrnl.commands import postconfig_list
+from jrnl.commands import postconfig_save_export_profile
 from jrnl.commands import preconfig_diagnostic
+from jrnl.commands import preconfig_list_export_profiles
 from jrnl.commands import preconfig_version
 from jrnl.output import deprecated_cmd
 from jrnl.plugins import EXPORT_FORMATS
@@ -129,6 +132,45 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
 
         --format [json or yaml]
         """,
+    )
+    standalone.add_argument(
+        "--list-export-profiles",
+        action="store_const",
+        const=preconfig_list_export_profiles,
+        dest="preconfig_cmd",
+        help="List all saved export profiles",
+    )
+    standalone.add_argument(
+        "--save-export-profile",
+        metavar="NAME",
+        dest="save_export_profile",
+        help="""
+        Save current export settings as a named profile.
+
+        Use with --format, --file, and/or --template to specify settings.
+        """,
+    )
+    standalone.add_argument(
+        "--delete-export-profile",
+        metavar="NAME",
+        dest="delete_export_profile",
+        help="Delete a saved export profile",
+    )
+    standalone.add_argument(
+        "--export-profile",
+        metavar="NAME",
+        dest="export_profile",
+        help="""
+        Use a saved export profile.
+
+        Settings from the profile can be overridden at the command line.
+        """,
+    )
+    standalone.add_argument(
+        "--force",
+        dest="force",
+        action="store_true",
+        help="Force overwriting existing files during export",
     )
     standalone.add_argument(
         "--ls",

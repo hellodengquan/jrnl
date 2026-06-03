@@ -284,6 +284,22 @@ class MsgText(Enum):
 
     KeyringRetrievalFailure = "Failed to retrieve keyring"
 
+    # --- Export Profiles --- #
+    ExportProfileNotFound = """
+        Export profile '{profile_name}' not found.
+        Available profiles: {available_profiles}
+        """
+    ExportProfileEmpty = """
+        Cannot save an empty export profile.
+        Please specify at least one of: --format, --file, --template
+        """
+    ExportProfileSaved = "Export profile '{profile_name}' saved"
+    ExportProfileDeleted = "Export profile '{profile_name}' deleted"
+    ExportPathConflict = """
+        The export path '{path}' already exists.
+        Use --force to overwrite existing files.
+        """
+
     # --- Deprecation --- #
     DeprecatedCommand = """
         The command {old_cmd} is deprecated and will be removed from jrnl soon.

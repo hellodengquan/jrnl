@@ -57,6 +57,20 @@ def run(args: "Namespace"):
     args = get_journal_name(args, config)
     config = scope_config(config, args.journal_name)
 
+    # Handle save export profile
+    if args.save_export_profile:
+        from jrnl.commands import postconfig_save_export_profile
+        return postconfig_save_export_profile(
+            args=args, config=config, original_config=original_config
+        )
+
+    # Handle delete export profile
+    if args.delete_export_profile:
+        from jrnl.commands import postconfig_delete_export_profile
+        return postconfig_delete_export_profile(
+            args=args, config=config, original_config=original_config
+        )
+
     # Run post-config command now that config is ready
     if callable(args.postconfig_cmd):
         return args.postconfig_cmd(
@@ -71,6 +85,7 @@ def run(args: "Namespace"):
     kwargs = {
         "args": args,
         "config": config,
+        "original_config": original_config,
         "journal": journal,
         "old_entries": journal.entries,
     }
@@ -388,6 +403,33 @@ def _change_time_search_results(
 def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> None:
     if len(journal) == 0:
         return
+
+    # Apply export profile if specified
+    if args.export_profile:
+        from jrnl.export_profiles import apply_profile
+
+        profile_settings = apply_profile(
+            kwargs["original_config"],
+            args.export_profile,
+            args_export=args.export or None,
+            args_filename=args.filename or None,
+            args_template=args.template or None,
+        )
+        args.export = profile_settings["export"] or args.export
+        args.filename = profile_settings["filename"] or args.filename
+        args.template = profile_settings["template"] or args.template
+
+    # Check for path conflicts if output file is specified
+    if args.filename and not args.force:
+        from jrnl.export_profiles import check_path_conflict
+
+        try:
+            check_path_conflict(args.filename)
+        except Exception as e:
+            from jrnl.output import print_msg
+
+            print_msg(e.args[0])
+            return
 
     # Get export format from config file if not provided at the command line
     args.export = args.export or kwargs["config"].get("display_format")
