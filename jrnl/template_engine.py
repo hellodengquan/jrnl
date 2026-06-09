@@ -140,6 +140,8 @@ class TemplateEngine:
             "truncate": self._filter_truncate,
             "join": self._filter_join,
             "firstline": self._filter_firstline,
+            "replace": self._filter_replace,
+            "json": self._filter_json,
         }
         self.template_name = "<template>"
 
@@ -411,7 +413,7 @@ class TemplateEngine:
                         raise
                     output.append(block_result)
                 elif token_value in ("endfor", "endif"):
-                    return "".join(output), i + 1
+                    i += 1
                 else:
                     i += 1
             else:
@@ -424,20 +426,32 @@ class TemplateEngine:
         start: int,
         end_token: str,
     ) -> tuple[list[tuple[str, str, int, str]], int]:
-        """提取嵌套块，返回块内 tokens 和结束位置。"""
+        """提取嵌套块，返回块内 tokens 和结束位置。
+
+        只排除自己的结束 closer（depth 归零时的那个 end_token），
+        其余 token（包括内部的 for/if/endfor/endif）都保留，
+        以便内层递归调用能正确找到自己的 closer。
+        """
         block_tokens = []
         depth = 1
         i = start + 1
         while i < len(tokens) and depth > 0:
             token_type, token_value, _, _ = tokens[i]
+            skip_append = False
             if token_type == "block":
                 if token_value.startswith("for ") or token_value.startswith("if "):
                     depth += 1
                 elif token_value == end_token:
                     depth -= 1
                     if depth == 0:
+                        # 找到匹配的 closer，返回，不要把它加入列表
+                        skip_append = True
                         return block_tokens, i + 1
-            block_tokens.append(tokens[i])
+                elif token_value in self.VALID_CLOSERS:
+                    # 另一种 closer (内部块闭合)，减少深度但保留 token
+                    depth -= 1
+            if not skip_append:
+                block_tokens.append(tokens[i])
             i += 1
         return block_tokens, i
 
@@ -713,22 +727,123 @@ class TemplateEngine:
         line_num: int = 0,
         line_content: str = "",
     ) -> Any:
-        """解析属性访问、切片、索引等表达式。"""
+        """解析属性访问、切片、索引等表达式。
+
+        支持任意组合的语法，例如:
+          - entries
+          - entry.title
+          - entries[0]
+          - entries[0].title
+          - entry.body[:100]
+          - entries[0].tags[1]
+          - journal.tags[0][0]
+        """
         expr = expr.strip()
         if not expr:
             return ""
 
-        # 处理切片/索引语法: name[start:end] 或 name[index]
-        slice_match = re.match(r"^(\w+(?:\.\w+)*)\s*\[(.+)\]$", expr)
-        if slice_match:
-            base_expr = slice_match.group(1)
-            slice_expr = slice_match.group(2)
-            base = self._resolve_simple(
-                base_expr, context, line_num, line_content
-            )
-            return self._apply_slice(base, slice_expr)
+        # 将表达式分解为操作序列
+        tokens = self._expr_tokenize(expr)
+        if not tokens:
+            return ""
 
-        return self._resolve_simple(expr, context, line_num, line_content)
+        # 第一个 token 必须是变量名
+        first_op, first_val = tokens[0]
+        if first_op != "name":
+            raise TemplateInvalidSyntaxError(
+                expr,
+                "Expression must start with a variable name",
+                self.template_name,
+                line_num,
+                line_content,
+            )
+
+        value = self._resolve_simple(
+            first_val, context, line_num, line_content
+        )
+
+        for op, val in tokens[1:]:
+            if value is None:
+                return None
+            if op == "attr":
+                if isinstance(value, dict):
+                    value = value.get(val)
+                else:
+                    value = getattr(value, val, None)
+            elif op == "slice":
+                value = self._apply_slice(value, val)
+            else:
+                raise TemplateInvalidSyntaxError(
+                    expr,
+                    f"Unknown operation: {op}",
+                    self.template_name,
+                    line_num,
+                    line_content,
+                )
+
+        return value
+
+    @staticmethod
+    def _expr_tokenize(expr: str) -> list[tuple[str, str]]:
+        """将表达式分解为 token 序列。
+
+        返回列表: [(op, value), ...]
+        op ∈ {"name", "attr", "slice"}
+        """
+        tokens: list[tuple[str, str]] = []
+        i = 0
+        n = len(expr)
+
+        # 第一个 token: 变量名（允许在顶层就有 .）
+        # 实际上第一个变量名就简单取到第一个 [ 或 . 之前
+        while i < n and expr[i].isspace():
+            i += 1
+
+        start = i
+        while i < n and (expr[i].isalnum() or expr[i] == "_"):
+            i += 1
+        if i == start:
+            return tokens
+        tokens.append(("name", expr[start:i]))
+
+        # 处理剩余部分
+        while i < n:
+            ch = expr[i]
+            if ch == ".":
+                # 属性访问
+                i += 1
+                while i < n and expr[i].isspace():
+                    i += 1
+                start = i
+                while i < n and (expr[i].isalnum() or expr[i] == "_"):
+                    i += 1
+                if i == start:
+                    return tokens
+                tokens.append(("attr", expr[start:i]))
+            elif ch == "[":
+                # 切片/索引
+                depth = 1
+                i += 1
+                start = i
+                while i < n and depth > 0:
+                    if expr[i] == "[":
+                        depth += 1
+                    elif expr[i] == "]":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    i += 1
+                slice_content = expr[start:i]
+                if i < n and expr[i] == "]":
+                    i += 1
+                tokens.append(("slice", slice_content))
+            elif ch.isspace():
+                i += 1
+            else:
+                # 不认识的字符就停止
+                break
+
+        return tokens
 
     def _resolve_simple(
         self,
@@ -832,3 +947,16 @@ class TemplateEngine:
         text = str(value) if value else ""
         lines = text.splitlines()
         return lines[0] if lines else ""
+
+    def _filter_replace(
+        self, value: Any, old: str, new: str = ""
+    ) -> str:
+        """字符串替换过滤器。"""
+        text = str(value) if value is not None else ""
+        return text.replace(old, new)
+
+    def _filter_json(self, value: Any) -> str:
+        """JSON 字符串转义过滤器，用于 JSON 模板中输出字符串。"""
+        import json
+
+        return json.dumps(str(value) if value is not None else "")
