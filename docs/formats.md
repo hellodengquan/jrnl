@@ -297,6 +297,105 @@ This is the sample body text of the second sample entry, but this one has a @tag
 Since formats use your journal data and display it in different ways, they can also be
 used to create reports.
 
+### Calendar / Heatmap
+
+``` sh
+jrnl --format calendar
+# or
+jrnl --format heatmap
+```
+
+This format generates a comprehensive activity calendar view that lets you quickly see
+journaling patterns, gaps, and busy periods. Like all formats, it works with any
+combination of search filters (date range, tags, starred status, content search, etc.),
+so you can inspect activity for specific subsets of your journal.
+
+The output is composed of three main sections:
+
+**1. Activity Statistics Summary**
+
+A structured table with the following metrics:
+
+| Metric | Description |
+| --- | --- |
+| Total Entries | Number of entries in the (filtered) journal |
+| Active Days | Number of unique days that have at least one entry |
+| Date Span | Days between the first and last entry |
+| Activity Rate | `Active Days / Date Span` — shows how consistently you wrote |
+| Longest Streak | Maximum number of consecutive days you wrote |
+| Current Streak | Number of consecutive days up to today you wrote |
+| Avg / Active Day | Average number of entries per active day |
+| Avg / Week | Average number of entries per week over the span |
+| Max / Day | Highest number of entries written on a single day, plus the date |
+
+**2. Annual Contribution Grid (GitHub-style)**
+
+Each year is rendered as a compact grid in the style of GitHub's contribution calendar:
+
+- Each **column** is one week, each **row** is a weekday (Mon-Sun)
+- The 5-level color scale uses the same green palette as GitHub:
+  - `#161b22` (darkest) — 0 entries (no activity)
+  - `#0e4429` — up to 25% of the daily maximum
+  - `#006d32` — up to 50% of the daily maximum
+  - `#26a641` — up to 75% of the daily maximum
+  - `#39d353` (brightest) — above 75% of the daily maximum
+- Each cell contains the actual entry count for that day (blank when 0)
+- Month abbreviations are shown along the top for orientation
+- Future dates are automatically excluded
+
+A **legend** below the grids explains the color-to-count mapping for the current data.
+
+**3. Monthly Detail View**
+
+After the overview grid, you get a traditional per-month calendar layout where each day
+is color-coded:
+
+- Red on black — no entry that day
+- Black on yellow — 1 entry
+- Black on green — 2 entries
+- Black on white — 3 or more entries
+
+This makes it easy to pinpoint exactly which days you missed and which days were
+especially productive.
+
+#### Filtering Examples
+
+Because the heatmap format operates on the (already filtered) journal entries, you can
+slice your activity any way you like:
+
+``` sh
+# Activity in 2024 only
+jrnl -year 2024 --format calendar
+
+# Work-related journaling activity
+jrnl @work --format heatmap
+
+# Activity during a specific quarter
+jrnl -from "2024-01-01" -to "2024-03-31" --format calendar
+
+# Only starred entries
+jrnl -starred --format heatmap
+```
+
+### Dates
+
+``` sh
+jrnl --format dates
+```
+
+A simple machine-readable format that outputs one line per active day with the date
+and the number of entries written that day. This is useful for piping into other
+tools (for example, to create external charts or heatmaps).
+
+Each line is formatted as `YYYY-MM-DD, N`.
+
+Example output:
+``` sh
+2020-08-29, 1
+2020-08-31, 2
+2020-09-24, 1
+```
+
 ### Tags
 
 ``` sh

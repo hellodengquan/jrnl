@@ -352,6 +352,17 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
 
         TYPE can be: {util.oxford_list(EXPORT_FORMATS)}.
 
+        Notable report formats:
+          calendar (heatmap)  GitHub-style activity heatmap with statistics:
+                              - Activity summary (total entries, active days,
+                                activity rate, longest/current streaks)
+                              - Annual contribution grid (5-level color scale)
+                              - Monthly detail view
+                              Works with all filters (date range, tags,
+                              starred, etc.) to show activity for subsets.
+          dates               Daily entry counts as "YYYY-MM-DD, N" rows.
+          tags                Tag frequency report, most frequent first.
+
         Optional parameters:
 
         --file FILENAME Write output to file instead of stdout
