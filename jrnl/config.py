@@ -115,16 +115,16 @@ class ConfigValidator:
         """校验指定名称的journal是否在配置中存在。
 
         Raises:
-            JrnlException: 当journal名称不存在于配置中时
+            JrnlException: 当journal名称不存在于配置中，或配置缺少journals键时
         """
-        if journal_name not in config["journals"]:
+        if "journals" not in config or journal_name not in config["journals"]:
             raise JrnlException(
                 Message(
                     MsgText.NoNamedJournal,
                     MsgStyle.ERROR,
                     {
                         "journal_name": journal_name,
-                        "journals": list_journals(config),
+                        "journals": list_journals(config) if "journals" in config else "",
                     },
                 ),
             )
