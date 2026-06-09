@@ -289,3 +289,62 @@ class MsgText(Enum):
         The command {old_cmd} is deprecated and will be removed from jrnl soon.
         Please use {new_cmd} instead.
         """
+
+    # --- Template Errors --- #
+    TemplateSyntaxError = """
+        Template syntax error: {error_message}
+        Template: {template_name}
+        Line {line_number}: {line_content}
+        {hint}
+        """
+
+    TemplateUnclosedBlock = """
+        Unclosed block in template.
+        Template: {template_name}
+        The block '{block_type}' starting at line {line_number} was never closed.
+        Expected '{expected_closer}' at the end of the block.
+        Line {line_number}: {line_content}
+
+        Tip: Make sure each {% for %} has a matching {% endfor %},
+             and each {% if %} has a matching {% endif %}.
+        """
+
+    TemplateUnexpectedCloser = """
+        Unexpected closer in template.
+        Template: {template_name}
+        Line {line_number}: {line_content}
+        The '{closer}' tag has no matching opening block.
+
+        Tip: Check that you haven't used {% endfor %} or {% endif %}
+             without a corresponding {% for %} or {% if %} before it.
+        """
+
+    TemplateUnknownFilter = """
+        Unknown filter in template.
+        Template: {template_name}
+        Line {line_number}: {line_content}
+        The filter '{filter_name}' is not recognized.
+
+        Available filters: {available_filters}
+
+        See the template documentation for the complete list of supported filters.
+        """
+
+    TemplateUnknownVariable = """
+        Unknown variable or attribute in template.
+        Template: {template_name}
+        Line {line_number}: {line_content}
+        The expression '{expression}' could not be resolved.
+
+        Available top-level variables: {available_vars}
+
+        Tip: If accessing nested attributes, make sure the parent variable exists
+             and the attribute name is correct.
+        """
+
+    TemplateRenderError = """
+        Template rendering failed.
+        Template: {template_name}
+        Error: {error_message}
+        {details}
+        """

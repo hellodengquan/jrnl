@@ -293,6 +293,365 @@ tags: tag
 This is the sample body text of the second sample entry, but this one has a @tag.
 ```
 
+## Template (Custom Export Format)
+
+``` sh
+jrnl --format template
+# or
+jrnl --format tpl
+```
+
+The `template` format allows you to fully customize the export output using reusable
+template files. With templates, you can organize your journal entries by date, tags,
+and body snippets to create reports, web pages, custom data formats, or anything you
+can imagine.
+
+### Quick Start
+
+``` sh
+# Use the built-in default template
+jrnl --format template
+
+# Use a specific template with --export-template
+jrnl --format template --export-template my_report.template
+
+# Write output to a file
+jrnl --format template --export-template default_html.template --file journal.html
+```
+
+### Specifying Templates
+
+You can specify a custom template in two ways:
+
+1. **Command line**: Use `--export-template PATH`
+    ```sh
+    jrnl --format template --export-template /path/to/my_template.template
+    ```
+
+2. **Configuration file**: Add to your journal config in `~/.config/jrnl/jrnl.yaml`:
+    ```yaml
+    default:
+      export_template: /path/to/my_template.template
+    ```
+
+Template paths can be:
+- Absolute paths (e.g., `/home/user/templates/report.template`)
+- Relative paths (e.g., `./my_template.template`)
+- File names inside the jrnl templates directory
+  (e.g., `$XDG_DATA_HOME/jrnl/templates/default_html.template`)
+
+### Built-in Templates
+
+jrnl ships with several ready-to-use templates:
+
+| Template File          | Extension | Description                                             |
+|------------------------|-----------|---------------------------------------------------------|
+| `default_text.template`  | `.txt`   | Plain text format with dates, titles, tags, and body    |
+| `default_markdown.template` | `.md`  | Markdown with table of contents and tag statistics     |
+| `default_html.template`   | `.html`  | Styled HTML report with navigation and stats cards     |
+| `summary.template`       | `.txt`   | Quick summary with title, date, tags, and body preview |
+| `custom_json.template`   | `.md` (json) | Custom JSON structure with entries and tag summary  |
+
+Example using built-in templates:
+```sh
+# Generate HTML report
+jrnl --format template --export-template default_html.template --file report.html
+
+# Get quick summary
+jrnl --format template --export-template summary.template
+
+# Export as custom JSON
+jrnl --format template --export-template custom_json.template --file backup.json
+```
+
+### Template Syntax
+
+Templates use a lightweight syntax similar to Jinja2. Here are all the supported features:
+
+#### Variables: `{{ variable }}`
+
+Output the value of a variable or expression.
+
+```jinja
+{{ entry.title }}
+{{ entry.date }}
+{{ journal.entry_count }}
+```
+
+#### Attributes: `{{ object.attribute }}`
+
+Access nested attributes with dot notation.
+
+```jinja
+{{ entry.title }}
+{{ entry.date.year }}
+{{ journal.name }}
+```
+
+#### Slicing/Indexing: `{{ variable[start:stop] }}`
+
+Extract substrings or list elements using Python-style slicing.
+
+```jinja
+{{ entry.body[:100] }}       {# First 100 characters of body #}
+{{ entry.tags[0] }}          {# First tag #}
+{{ entry.body[20:50] }}      {# Characters 20-49 #}
+```
+
+#### Filters: `{{ variable | filter_name:"args" }}`
+
+Transform values using pipe (`|`) filters. Multiple filters can be chained.
+
+```jinja
+{{ entry.date | date:"%Y-%m-%d" }}
+{{ entry.tags | join:", " }}
+{{ entry.body | truncate:150,"..." }}
+{{ entry.title | upper | strip }}
+```
+
+#### Loops: `{% for var in iterable %} ... {% endfor %}`
+
+Iterate over lists. Special `loop` variables are available inside loops.
+
+```jinja
+{% for entry in entries %}
+  {{ loop.index }}. {{ entry.title }}
+{% endfor %}
+```
+
+#### Conditionals: `{% if condition %} ... {% else %} ... {% endif %}`
+
+Branch logic with optional `{% else %}` block. Supports `not` for negation.
+
+```jinja
+{% if entry.starred %}⭐{% endif %}
+
+{% if entry.tags %}
+  Tags: {{ entry.tags | join:", " }}
+{% else %}
+  No tags
+{% endif %}
+
+{% if not loop.last %}---{% endif %}
+```
+
+#### YAML Front Matter
+
+Templates can optionally start with YAML front matter (delimited by `---`) to set
+metadata:
+
+```jinja
+---
+extension: html
+name: My Custom Report
+description: Beautiful HTML export of my journal
+---
+<!DOCTYPE html>
+<html>...
+```
+
+Supported front matter fields:
+- `extension`: Output file extension (e.g., `md`, `html`, `txt`, `json`)
+- `name`: Human-readable template name
+- `description`: What this template does
+
+### Available Variables
+
+#### Top-level Variables
+
+| Variable            | Type   | Description                                      |
+|---------------------|--------|--------------------------------------------------|
+| `entries`           | list   | All matching journal entries                     |
+| `journal`           | dict   | Journal-level information                        |
+| `journal.name`      | str    | Name of the journal                              |
+| `journal.entry_count` | int  | Number of entries in the selection              |
+| `journal.tags`      | list   | Tag frequency list: `[(tag_name, count), ...]`   |
+| `entry`             | dict   | (Single-entry mode only) The current entry       |
+
+#### Entry Variables (available on each item in `entries`)
+
+| Variable          | Type      | Description                                     |
+|-------------------|-----------|-------------------------------------------------|
+| `entry.title`     | str       | Entry title (first line)                        |
+| `entry.body`      | str       | Entry body text (everything after the title)    |
+| `entry.date`      | datetime  | Entry date and time (use with `date` filter)    |
+| `entry.tags`      | list[str] | List of tags in this entry (e.g., `["@work"]`)  |
+| `entry.starred`   | bool      | Whether entry is starred                        |
+| `entry.uuid`      | str       | Unique identifier (if available)                |
+| `entry.fulltext`  | str       | Raw full entry text (if available)              |
+
+#### Loop Variables (available inside `{% for %}`)
+
+| Variable          | Type  | Description                                            |
+|-------------------|-------|--------------------------------------------------------|
+| `loop.index`      | int   | 1-based index of current iteration (1, 2, 3, ...)      |
+| `loop.index0`     | int   | 0-based index of current iteration (0, 1, 2, ...)      |
+| `loop.first`      | bool  | `True` on first iteration                              |
+| `loop.last`       | bool  | `True` on last iteration                               |
+| `loop.length`     | int   | Total number of items in the loop                      |
+
+### Complete Filter Reference
+
+| Filter Name | Arguments                      | Description & Example                                                 |
+|-------------|--------------------------------|-----------------------------------------------------------------------|
+| `date`      | `format_string` (str)         | Format a datetime using Python `strftime()` codes.<br>`{{ entry.date \| date:"%Y-%m-%d %H:%M" }}` → `2024-06-01 14:30` |
+| `truncate`  | `length` (int), `suffix` (str, optional) | Truncate text to N chars, appending suffix if needed.<br>`{{ body \| truncate:100,"..." }}` |
+| `join`      | `separator` (str)             | Join a list into a string with separator.<br>`{{ entry.tags \| join:", " }}` → `@work, @home` |
+| `firstline` | none                           | Extract only the first line of text.<br>`{{ entry.body \| firstline }}` |
+| `length`    | none                           | Get length/count of string or list.<br>`{{ entry.tags \| length }}` → `3` |
+| `upper`     | none                           | Convert to UPPERCASE.<br>`{{ title \| upper }}` |
+| `lower`     | none                           | Convert to lowercase.<br>`{{ title \| lower }}` |
+| `strip`     | none                           | Remove leading/trailing whitespace.<br>`{{ title \| strip }}` |
+
+Common Python `strftime()` date format codes:
+
+| Code | Meaning                  | Example |
+|------|--------------------------|---------|
+| `%Y` | 4-digit year             | `2024`  |
+| `%m` | 2-digit month (01-12)    | `06`    |
+| `%d` | 2-digit day (01-31)      | `15`    |
+| `%H` | 24-hour hour (00-23)     | `14`    |
+| `%M` | Minute (00-59)           | `30`    |
+| `%B` | Full month name          | `June`  |
+| `%A` | Full weekday name        | `Monday`|
+| `%I` | 12-hour hour (01-12)     | `02`    |
+| `%p` | AM/PM indicator          | `PM`    |
+
+### Complete Examples
+
+#### Example 1: Simple Markdown List
+```jinja
+---
+extension: md
+name: Simple Markdown List
+---
+# My Journal
+
+{% for entry in entries %}
+## {{ entry.date | date:"%Y-%m-%d" }} - {{ entry.title }}{% if entry.starred %} ⭐{% endif %}
+
+{% if entry.tags %}*Tags: {{ entry.tags | join:", " }}*{% endif %}
+
+{{ entry.body }}
+
+{% endfor %}
+```
+
+#### Example 2: HTML Report with Tag Cloud
+```jinja
+---
+extension: html
+name: Tag Cloud Report
+---
+<html>
+<head>
+    <title>Journal Report - {{ journal.entry_count }} entries</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 2em auto; }
+        .entry { border: 1px solid #ccc; padding: 1em; margin: 1em 0; border-radius: 8px; }
+        .tag { background: #3498db; color: white; padding: 2px 8px; border-radius: 10px; margin-right: 4px; }
+        h2 { color: #2c3e50; }
+    </style>
+</head>
+<body>
+    <h1>📓 Journal Report</h1>
+    <p>Total entries: <strong>{{ journal.entry_count }}</strong></p>
+
+    <h2>🏷️ Tag Cloud</h2>
+    <p>
+    {% for tag, count in journal.tags %}
+        <span class="tag">{{ tag }} ({{ count }})</span>
+    {% endfor %}
+    </p>
+
+    <h2>📝 Entries</h2>
+    {% for entry in entries %}
+    <div class="entry">
+        <h3>{{ entry.date | date:"%B %d, %Y" }} - {{ entry.title }}{% if entry.starred %} ⭐{% endif %}</h3>
+        {% if entry.tags %}
+            {% for tag in entry.tags %}
+                <span class="tag">{{ tag }}</span>
+            {% endfor %}
+        {% endif %}
+        <p>{{ entry.body | firstline }}</p>
+    </div>
+    {% endfor %}
+</body>
+</html>
+```
+
+#### Example 3: CSV-style Export
+```jinja
+---
+extension: csv
+name: CSV Export
+---
+"Date","Title","Tags","Starred","Body_Preview"
+{% for entry in entries %}"{{ entry.date | date:"%Y-%m-%d" }}","{{ entry.title | strip }}","{{ entry.tags | join:";" }}",{{ entry.starred }},"{{ entry.body[:80] | truncate:80 | strip }}"{% endfor %}
+```
+
+#### Example 4: Summary with Sentiment Keywords
+```jinja
+---
+extension: txt
+name: Weekly Summary
+---
+═════════════════════════════════════════
+       WEEKLY JOURNAL SUMMARY
+       {{ journal.entry_count }} entries
+═════════════════════════════════════════
+
+Entries by date:
+{% for entry in entries %}
+  [{{ entry.date | date:"%a %m/%d" }}] {{ entry.title }}
+  Tags: {{ entry.tags | join:", " }}
+  Preview: {{ entry.body | firstline }}
+{% endfor %}
+
+─────────────────────────────────────────
+Tag frequency:
+{% for tag, count in journal.tags %}  {{ tag }}: {{ count }}
+{% endfor %}
+```
+
+### Troubleshooting Template Errors
+
+When there is an error in your template, `jrnl` will show a friendly message with:
+- The error type and description
+- The template file name
+- The **exact line number** where the problem occurred
+- The content of that line
+- A helpful hint on how to fix it
+
+#### Common Errors:
+
+**"Unclosed 'for' block - expected 'endfor'"**
+```
+⚠️  模板语法错误: 未关闭的 'for' 块
+   模板文件: my_template.template
+   第 5 行: {% for entry in entries %}
+   缺少对应的 '{% endfor %}' 标签
+```
+→ Fix: Add a `{% endfor %}` at the end of your loop.
+
+**"Unknown filter 'capitalize'"**
+```
+⚠️  模板语法错误: 未知的过滤器 'capitalize'
+   模板文件: report.template
+   第 12 行: {{ entry.title | capitalize }}
+   可用过滤器: date, firstline, join, length, lower, strip, truncate, upper
+```
+→ Fix: Check the spelling or use an available filter from the list.
+
+**"Cannot resolve expression 'entry.wrong_field'"**
+```
+⚠️  模板语法错误: 无法解析表达式 'entry.wrong_field'
+   模板文件: my_template.template
+   第 8 行: {{ entry.wrong_field }}
+   可用的顶层变量: entries, journal, entry, (entry attributes)
+```
+→ Fix: Use the correct attribute name (see "Available Variables" above).
+
 ## Report formats
 Since formats use your journal data and display it in different ways, they can also be
 used to create reports.
