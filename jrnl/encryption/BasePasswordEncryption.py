@@ -9,6 +9,7 @@ from jrnl.keyring import get_keyring_password
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
+from jrnl.output import print_msg
 from jrnl.prompt import create_password
 from jrnl.prompt import prompt_password
 
@@ -21,6 +22,7 @@ class BasePasswordEncryption(BaseEncryption):
         self._max_attempts: int = 3
         self._password: str = ""
         self._check_keyring: bool = True
+        self._failed_before: bool = False
 
     @property
     def check_keyring(self) -> bool:
@@ -41,6 +43,7 @@ class BasePasswordEncryption(BaseEncryption):
     def clear(self):
         self.password = None
         self.check_keyring = False
+        self._failed_before = False
 
     def encrypt(self, text: str) -> bytes:
         logging.debug("encrypting")
@@ -62,11 +65,17 @@ class BasePasswordEncryption(BaseEncryption):
                 keyring_pw := get_keyring_password(self._journal_name)
             ):
                 self.password = keyring_pw
+                if (result := self._decrypt(text)) is not None:
+                    return result
+                self._failed_before = True
+                print_msg(Message(MsgText.KeyringPasswordFailed, MsgStyle.WARNING))
+                self.password = None
 
             if not self.password:
                 self._prompt_password()
 
         while (result := self._decrypt(text)) is None:
+            self._failed_before = True
             self._prompt_password()
 
         return result
@@ -77,6 +86,5 @@ class BasePasswordEncryption(BaseEncryption):
                 Message(MsgText.PasswordMaxTriesExceeded, MsgStyle.ERROR)
             )
 
-        first_try = self._attempts == 0
-        self.password = prompt_password(first_try=first_try)
+        self.password = prompt_password(first_try=not self._failed_before)
         self._attempts += 1
