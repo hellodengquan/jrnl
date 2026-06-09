@@ -223,21 +223,19 @@ def _write_in_editor(config: dict, prepopulated_text: str | None = None) -> str:
 
 def _filter_journal_entries(args: "Namespace", journal: "Journal", **kwargs) -> None:
     """Filter journal entries in-place based upon search args"""
-    if args.on_date:
-        args.start_date = args.end_date = args.on_date
-
-    if args.today_in_history:
-        now = time.parse("now")
-        args.day = now.day
-        args.month = now.month
-
-    journal.filter(
-        tags=args.text,
+    date_range = time.parse_date_range(
+        on_date=args.on_date,
+        start_date=args.start_date,
+        end_date=args.end_date,
         month=args.month,
         day=args.day,
         year=args.year,
-        start_date=args.start_date,
-        end_date=args.end_date,
+        today_in_history=args.today_in_history,
+    )
+
+    journal.filter(
+        tags=args.text,
+        date_range=date_range,
         strict=args.strict,
         starred=args.starred,
         tagged=args.tagged,

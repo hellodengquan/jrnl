@@ -236,11 +236,7 @@ class Journal:
     def filter(
         self,
         tags=[],
-        month=None,
-        day=None,
-        year=None,
-        start_date=None,
-        end_date=None,
+        date_range: "time.DateRange | None" = None,
         starred=False,
         tagged=False,
         exclude_starred=False,
@@ -254,7 +250,7 @@ class Journal:
         tags is a list of tags, each being a string that starts with one of the
         tag symbols defined in the config, e.g. ["@John", "#WorldDomination"].
 
-        start_date and end_date define a timespan by which to filter.
+        date_range is a DateRange object defining the date constraints.
 
         starred limits journal to starred entries
 
@@ -262,10 +258,13 @@ class Journal:
 
         exclude is a list of the tags which should not appear in the results.
         entry is kept if any tag is present, unless they appear in exclude."""
+        from jrnl import time as jrnl_time
+
         self.search_tags = {tag.lower() for tag in tags}
         excluded_tags = {tag.lower() for tag in exclude}
-        end_date = time.parse(end_date, inclusive=True)
-        start_date = time.parse(start_date)
+
+        if date_range is None:
+            date_range = jrnl_time.DateRange()
 
         # If strict mode is on, all tags have to be present in entry
         has_tags = (
@@ -278,22 +277,13 @@ class Journal:
         if contains:
             contains_lower = [substring.casefold() for substring in contains]
 
-        # Create datetime object for comparison below
-        # this approach allows various formats
-        if month or day or year:
-            compare_d = time.parse(f"{month or 1}.{day or 1}.{year or 1}")
-
         result = [
             entry
             for entry in self.entries
             if (not tags or has_tags(entry.tags))
             and (not (starred or exclude_starred) or entry.starred == starred)
             and (not (tagged or exclude_tagged) or bool(entry.tags) == tagged)
-            and (not month or entry.date.month == compare_d.month)
-            and (not day or entry.date.day == compare_d.day)
-            and (not year or entry.date.year == compare_d.year)
-            and (not start_date or entry.date >= start_date)
-            and (not end_date or entry.date <= end_date)
+            and date_range.matches(entry.date)
             and (not exclude or not excluded(entry.tags))
             and (
                 not contains
