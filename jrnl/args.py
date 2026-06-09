@@ -355,6 +355,7 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         Optional parameters:
 
         --file FILENAME Write output to file instead of stdout
+        --export-template TEMPLATE_PATH Custom template for 'template' format
         """,
         default=False,
     )
@@ -364,6 +365,15 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         dest="export",
         choices=EXPORT_FORMATS,
         help=argparse.SUPPRESS,
+    )
+    exporting.add_argument(
+        "--export-template",
+        metavar="TEMPLATE_PATH",
+        dest="export_template",
+        help="Path to custom export template. Used with --format template. "
+        "Can be a local path, absolute path, or a path relative to "
+        "$XDG_DATA_HOME/jrnl/templates/",
+        default=None,
     )
     exporting.add_argument(
         "--tags",

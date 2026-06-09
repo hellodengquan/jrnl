@@ -1,0 +1,34 @@
+---
+extension: md
+name: Markdown 日记
+description: Markdown 格式日记导出模板，包含标签和星标标记
+---
+# 日记导出
+*共 {{ journal.entry_count }} 条日记*
+
+## 目录
+{% for entry in entries %}- [{{ entry.date | date:"%Y-%m-%d" }} - {{ entry.title }}](#{{ entry.date | date:"%Y%m%d%H%M" }})
+{% endfor %}
+
+---
+
+## 日记正文
+{% for entry in entries %}
+### <a id="{{ entry.date | date:"%Y%m%d%H%M" }}"></a>{{ entry.date | date:"%Y-%m-%d %H:%M" }} - {{ entry.title }}{% if entry.starred %} ⭐{% endif %}
+
+{% if entry.tags %}
+**标签:** {{ entry.tags | join:", " }}
+{% endif %}
+{% if entry.body %}
+
+{{ entry.body }}
+{% endif %}
+
+---
+{% endfor %}
+
+## 标签统计
+| 标签 | 出现次数 |
+|------|----------|
+{% for tag, count in journal.tags %}| `{{ tag }}` | {{ count }} |
+{% endfor %}

@@ -1,0 +1,21 @@
+---
+extension: txt
+name: 纯文本导出
+description: 默认的纯文本格式日记导出模板
+---
+日记导出
+========
+{% for entry in entries %}
+[{{ entry.date | date:"%Y-%m-%d %H:%M" }}] {{ entry.title }}{% if entry.starred %} ⭐{% endif %}
+{% if entry.tags %}
+标签: {{ entry.tags | join:", " }}
+{% endif %}
+{% if entry.body %}
+
+{{ entry.body }}
+{% endif %}
+
+---
+
+{% endfor %}
+共 {{ journal.entry_count }} 条日记

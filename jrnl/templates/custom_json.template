@@ -1,0 +1,24 @@
+---
+extension: md
+name: JSON 数据导出
+description: 使用模板生成自定义 JSON 格式输出
+---
+{
+  "journal_name": "{{ journal.name }}",
+  "entry_count": {{ journal.entry_count }},
+  "generated_at": "export",
+  "entries": [
+{% for entry in entries %}    {
+      "date": "{{ entry.date | date:"%Y-%m-%dT%H:%M:%S" }}",
+      "title": "{{ entry.title | strip }}",
+      "starred": {{ entry.starred }},
+      "tags": [{% for tag in entry.tags %}"{{ tag }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+      "body_preview": "{{ entry.body[:200] | truncate:200 | strip }}"
+    }{% if not loop.last %},{% endif %}
+{% endfor %}
+  ],
+  "tags_summary": {
+{% for tag, count in journal.tags %}    "{{ tag }}": {{ count }}{% if not loop.last %},{% endif %}
+{% endfor %}
+  }
+}

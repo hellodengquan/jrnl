@@ -10,6 +10,7 @@ from jrnl.plugins.jrnl_importer import JRNLImporter
 from jrnl.plugins.json_exporter import JSONExporter
 from jrnl.plugins.markdown_exporter import MarkdownExporter
 from jrnl.plugins.tag_exporter import TagExporter
+from jrnl.plugins.template_exporter import TemplateExporter
 from jrnl.plugins.text_exporter import TextExporter
 from jrnl.plugins.xml_exporter import XMLExporter
 from jrnl.plugins.yaml_exporter import YAMLExporter
@@ -20,6 +21,7 @@ __exporters = [
     FancyExporter,
     JSONExporter,
     MarkdownExporter,
+    TemplateExporter,
     TagExporter,
     TextExporter,
     XMLExporter,

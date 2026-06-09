@@ -1,0 +1,27 @@
+---
+extension: txt
+name: 日记摘要
+description: 快速浏览的摘要格式，包含标题、日期、标签和正文前几行
+---
+═══════════════════════════════════════════════════
+              日记摘要报告
+              共 {{ journal.entry_count }} 条
+═══════════════════════════════════════════════════
+
+{% for entry in entries %}
+【{{ loop.index }}】{{ entry.date | date:"%Y-%m-%d %H:%M" }}{% if entry.starred %} ⭐{% endif %}
+     标题: {{ entry.title }}
+{% if entry.tags %}
+     标签: {{ entry.tags | join:", " }}
+{% endif %}
+{% if entry.body %}
+     摘要: {{ entry.body | firstline }}
+           {{ entry.body[80:160] | truncate:80 }}
+{% endif %}
+
+{% endfor %}
+
+───────────────────────────────────────────────────
+                        标签云
+───────────────────────────────────────────────────
+{% for tag, count in journal.tags %}{{ tag }}({{ count }}) {% endfor %}

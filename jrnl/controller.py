@@ -403,7 +403,11 @@ def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> 
 
     elif args.export:
         exporter = plugins.get_exporter(args.export)
-        print(exporter.export(journal, args.filename))
+        if args.export == "template" or args.export == "tpl":
+            from jrnl.plugins.template_exporter import TemplateExporter
+            print(TemplateExporter.export(journal, args.filename, args.export_template))
+        else:
+            print(exporter.export(journal, args.filename))
     else:
         print(journal.pprint())
 

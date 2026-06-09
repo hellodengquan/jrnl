@@ -31,6 +31,7 @@ def expected_args(**kwargs):
         "year": None,
         "excluded": [],
         "export": False,
+        "export_template": None,
         "filename": None,
         "limit": None,
         "on_date": None,
