@@ -44,6 +44,12 @@ class BasePasswordEncryption(BaseEncryption):
         self.password = None
         self.check_keyring = False
         self._failed_before = False
+        self._attempts = 0
+
+    def _reset_password_state(self) -> None:
+        self._password = None
+        self._attempts = 0
+        self._failed_before = False
 
     def encrypt(self, text: str) -> bytes:
         logging.debug("encrypting")
@@ -54,7 +60,10 @@ class BasePasswordEncryption(BaseEncryption):
                 self.password = keyring_pw
 
             if not self.password:
-                self.password = create_password(self._journal_name)
+                try:
+                    self.password = create_password(self._journal_name)
+                except (KeyboardInterrupt, EOFError) as e:
+                    self._handle_interrupt(e)
 
         return self._encrypt(text)
 
@@ -80,11 +89,23 @@ class BasePasswordEncryption(BaseEncryption):
 
         return result
 
+    def _handle_interrupt(self, e: BaseException) -> None:
+        self._reset_password_state()
+        if isinstance(e, EOFError):
+            raise JrnlException(Message(MsgText.EOFOnInput, MsgStyle.ERROR_ON_NEW_LINE))
+        raise JrnlException(
+            Message(MsgText.PasswordEntryCancelled, MsgStyle.ERROR_ON_NEW_LINE)
+        )
+
     def _prompt_password(self) -> None:
         if self._attempts >= self._max_attempts:
             raise JrnlException(
                 Message(MsgText.PasswordMaxTriesExceeded, MsgStyle.ERROR)
             )
 
-        self.password = prompt_password(first_try=not self._failed_before)
+        try:
+            self.password = prompt_password(first_try=not self._failed_before)
+        except (KeyboardInterrupt, EOFError) as e:
+            self._handle_interrupt(e)
+
         self._attempts += 1

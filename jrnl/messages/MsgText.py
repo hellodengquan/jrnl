@@ -237,6 +237,8 @@ class MsgText(Enum):
     WrongPasswordTryAgain = "Wrong password, try again"
     PasswordStoreInKeychain = "Do you want to store the password in your keychain?"
     KeyringPasswordFailed = "Keyring password failed, enter password manually"
+    PasswordEntryCancelled = "Password entry cancelled"
+    EOFOnInput = "End of input reached"
 
     # --- Search --- #
     NothingToDelete = """

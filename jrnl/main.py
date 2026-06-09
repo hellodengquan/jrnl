@@ -57,6 +57,16 @@ def run(manual_args: list[str] | None = None) -> int:
             )
         )
 
+    except EOFError:
+        status_code = 1
+
+        print_msg(
+            Message(
+                MsgText.EOFOnInput,
+                MsgStyle.ERROR_ON_NEW_LINE,
+            )
+        )
+
     except Exception as e:
         # uncaught exception
         status_code = 1
