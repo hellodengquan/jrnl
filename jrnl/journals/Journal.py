@@ -7,7 +7,7 @@ import os
 import re
 
 from jrnl import time
-from jrnl.config import validate_journal_name
+from jrnl.config import ConfigValidator
 from jrnl.encryption import determine_encryption_method
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
@@ -481,23 +481,20 @@ def open_journal(journal_name: str, config: dict, legacy: bool = False) -> Journ
     Creates a normal, encrypted or DayOne journal based on the passed config.
     If legacy is True, it will open Journals with legacy classes build for
     backwards compatibility with jrnl 1.x
+
+    配置校验（集中管理）：
+    1. journal名称校验 → ConfigValidator.validate_journal_name
+    2. 加密与路径兼容性校验 → ConfigValidator.validate_and_print_encryption_compatibility
     """
     logging.debug(f"open_journal '{journal_name}'")
-    validate_journal_name(journal_name, config)
+    ConfigValidator.validate_journal_name(journal_name, config)
     config = config.copy()
     config["journal"] = expand_path(config["journal"])
 
     if os.path.isdir(config["journal"]):
-        if config["encrypt"]:
-            print_msg(
-                Message(
-                    MsgText.ConfigEncryptedForUnencryptableJournalType,
-                    MsgStyle.WARNING,
-                    {
-                        "journal_name": journal_name,
-                    },
-                )
-            )
+        ConfigValidator.validate_and_print_encryption_compatibility(
+            journal_name, is_dir=True, encrypt=config["encrypt"]
+        )
 
         if config["journal"].strip("/").endswith(".dayone") or "entries" in os.listdir(
             config["journal"]

@@ -10,6 +10,7 @@ import sys
 from rich.pretty import pretty_repr
 
 from jrnl import __version__
+from jrnl.config import ConfigValidator
 from jrnl.config import DEFAULT_JOURNAL_KEY
 from jrnl.config import get_config_path
 from jrnl.config import get_default_colors
@@ -17,7 +18,6 @@ from jrnl.config import get_default_config
 from jrnl.config import get_default_journal_path
 from jrnl.config import load_config
 from jrnl.config import save_config
-from jrnl.config import verify_config_colors
 from jrnl.exception import JrnlException
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
@@ -67,13 +67,7 @@ def find_default_config() -> str:
 
 
 def find_alt_config(alt_config: str) -> str:
-    if not os.path.exists(alt_config):
-        raise JrnlException(
-            Message(
-                MsgText.AltConfigNotFound, MsgStyle.ERROR, {"config_file": alt_config}
-            )
-        )
-
+    ConfigValidator.validate_alt_config_exists(alt_config)
     return alt_config
 
 
@@ -82,6 +76,11 @@ def load_or_install_jrnl(alt_config_path: str) -> dict:
     If jrnl is already installed, loads and returns a default config object.
     If alternate config is specified via --config-file flag, it will be used.
     Else, perform various prompts to install jrnl.
+
+    配置校验流程（集中管理）：
+    1. 替代配置文件存在性校验 → find_alt_config → ConfigValidator.validate_alt_config_exists
+    2. 空配置校验 → ConfigValidator.validate_config_not_none
+    3. 全局配置校验（颜色等） → ConfigValidator.validate_all_global_and_print
     """
     config_path = (
         find_alt_config(alt_config_path) if alt_config_path else find_default_config()
@@ -91,16 +90,7 @@ def load_or_install_jrnl(alt_config_path: str) -> dict:
         logging.debug("Reading configuration from file %s", config_path)
         config = load_config(config_path)
 
-        if config is None:
-            raise JrnlException(
-                Message(
-                    MsgText.CantParseConfigFile,
-                    MsgStyle.ERROR,
-                    {
-                        "config_path": config_path,
-                    },
-                )
-            )
+        ConfigValidator.validate_config_not_none(config, config_path)
 
         if is_old_version(config_path):
             from jrnl import upgrade
@@ -108,7 +98,7 @@ def load_or_install_jrnl(alt_config_path: str) -> dict:
             upgrade.upgrade_jrnl(config_path)
 
         upgrade_config(config, alt_config_path)
-        verify_config_colors(config)
+        ConfigValidator.validate_all_global_and_print(config)
 
     else:
         logging.debug("Configuration file not found, installing jrnl...")

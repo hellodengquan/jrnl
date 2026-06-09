@@ -20,6 +20,7 @@ import logging
 import platform
 import sys
 
+from jrnl.config import ConfigValidator
 from jrnl.config import cmd_requires_valid_journal_name
 from jrnl.exception import JrnlException
 from jrnl.messages import Message
@@ -97,6 +98,8 @@ def postconfig_encrypt(
 ) -> int:
     """
     Encrypt a journal in place, or optionally to a new file
+
+    journal类型加密兼容性校验 → ConfigValidator.validate_journal_encryptable
     """
     from jrnl.config import update_config
     from jrnl.install import save_config
@@ -105,17 +108,9 @@ def postconfig_encrypt(
     # Open the journal
     journal = open_journal(args.journal_name, config)
 
-    if hasattr(journal, "can_be_encrypted") and not journal.can_be_encrypted:
-        raise JrnlException(
-            Message(
-                MsgText.CannotEncryptJournalType,
-                MsgStyle.ERROR,
-                {
-                    "journal_name": args.journal_name,
-                    "journal_type": journal.__class__.__name__,
-                },
-            )
-        )
+    ConfigValidator.validate_journal_encryptable(
+        args.journal_name, journal.__class__, config
+    )
 
     # If journal is encrypted, create new password
     logging.debug("Clearing encryption method...")

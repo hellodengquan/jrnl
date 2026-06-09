@@ -19,6 +19,7 @@ from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.output import list_journals
 from jrnl.output import print_msg
+from jrnl.output import print_msgs
 from jrnl.path import get_config_path
 from jrnl.path import get_default_journal_path
 
@@ -27,6 +28,201 @@ DEFAULT_JOURNAL_KEY = "default"
 
 YAML_SEPARATOR = ": "
 YAML_FILE_ENCODING = "utf-8"
+
+
+class ConfigValidator:
+    """集中式配置校验器，统一管理所有配置相关的读取、校验和提示边界。
+
+    职责分层：
+    1. 文件系统层校验 - 配置文件路径、存在性、目录占用
+    2. 解析层校验 - YAML格式、重复键、空配置
+    3. 结构层校验 - 必需字段、颜色值合法性
+    4. 业务层校验 - journal名称、加密兼容性、editor配置
+    """
+
+    @staticmethod
+    def validate_alt_config_exists(alt_config_path: str) -> None:
+        """校验替代配置文件路径是否存在。
+
+        Raises:
+            JrnlException: 当替代配置文件不存在时
+        """
+        if not os.path.exists(alt_config_path):
+            raise JrnlException(
+                Message(
+                    MsgText.AltConfigNotFound,
+                    MsgStyle.ERROR,
+                    {"config_file": alt_config_path},
+                )
+            )
+
+    @staticmethod
+    def validate_config_not_none(config: Any, config_path: str) -> None:
+        """校验加载后的配置不为空。
+
+        Raises:
+            JrnlException: 当配置为空无法解析时
+        """
+        if config is None:
+            raise JrnlException(
+                Message(
+                    MsgText.CantParseConfigFile,
+                    MsgStyle.ERROR,
+                    {"config_path": config_path},
+                )
+            )
+
+    @staticmethod
+    def validate_colors(config: dict) -> list[Message]:
+        """校验colors配置中的颜色值是否有效。
+
+        Returns:
+            list[Message]: 包含所有颜色校验错误的消息列表（空列表表示全部通过）
+        """
+        warnings: list[Message] = []
+        if "colors" not in config:
+            return warnings
+
+        for key, color in config["colors"].items():
+            upper_color = color.upper()
+            if upper_color == "NONE":
+                continue
+            if not getattr(colorama.Fore, upper_color, None):
+                warnings.append(
+                    Message(
+                        MsgText.InvalidColor,
+                        MsgStyle.NORMAL,
+                        {"key": key, "color": color},
+                    )
+                )
+        return warnings
+
+    @staticmethod
+    def validate_colors_and_print(config: dict) -> bool:
+        """校验颜色配置并打印所有警告信息。
+
+        Returns:
+            bool: True表示所有颜色有效，False表示存在无效颜色
+        """
+        warnings = ConfigValidator.validate_colors(config)
+        if warnings:
+            print_msgs(warnings)
+            return False
+        return True
+
+    @staticmethod
+    def validate_journal_name(journal_name: str, config: dict) -> None:
+        """校验指定名称的journal是否在配置中存在。
+
+        Raises:
+            JrnlException: 当journal名称不存在于配置中时
+        """
+        if journal_name not in config["journals"]:
+            raise JrnlException(
+                Message(
+                    MsgText.NoNamedJournal,
+                    MsgStyle.ERROR,
+                    {
+                        "journal_name": journal_name,
+                        "journals": list_journals(config),
+                    },
+                ),
+            )
+
+    @staticmethod
+    def validate_editor_configured(config: dict) -> None:
+        """校验是否已配置editor（用于--edit等需要编辑器的场景）。
+
+        Raises:
+            JrnlException: 当editor未配置时
+        """
+        if not config.get("editor"):
+            raise JrnlException(
+                Message(
+                    MsgText.EditorNotConfigured,
+                    MsgStyle.ERROR,
+                    {"config_file": get_config_path()},
+                )
+            )
+
+    @staticmethod
+    def validate_journal_encryptable(
+        journal_name: str, journal_type: type, config: dict
+    ) -> None:
+        """校验指定类型的journal是否支持加密。
+
+        Raises:
+            JrnlException: 当journal类型不支持加密时
+        """
+        if hasattr(journal_type, "can_be_encrypted") and not journal_type.can_be_encrypted:
+            raise JrnlException(
+                Message(
+                    MsgText.CannotEncryptJournalType,
+                    MsgStyle.ERROR,
+                    {
+                        "journal_name": journal_name,
+                        "journal_type": journal_type.__name__,
+                    },
+                )
+            )
+
+    @staticmethod
+    def validate_journal_encryption_compatibility(
+        journal_name: str, is_dir: bool, encrypt: Any
+    ) -> list[Message]:
+        """校验journal路径与加密配置的兼容性。
+        文件夹类型的journal无法加密，此检查生成警告消息。
+
+        Returns:
+            list[Message]: 兼容性警告消息列表
+        """
+        warnings: list[Message] = []
+        if is_dir and encrypt:
+            warnings.append(
+                Message(
+                    MsgText.ConfigEncryptedForUnencryptableJournalType,
+                    MsgStyle.WARNING,
+                    {"journal_name": journal_name},
+                )
+            )
+        return warnings
+
+    @staticmethod
+    def validate_and_print_encryption_compatibility(
+        journal_name: str, is_dir: bool, encrypt: Any
+    ) -> None:
+        """校验加密兼容性并打印警告。"""
+        warnings = ConfigValidator.validate_journal_encryption_compatibility(
+            journal_name, is_dir, encrypt
+        )
+        if warnings:
+            print_msgs(warnings)
+
+    @staticmethod
+    def validate_all_global(config: dict) -> list[Message]:
+        """执行所有全局配置校验（不依赖特定journal上下文）。
+
+        包括：颜色校验等。未来可扩展更多全局校验。
+
+        Returns:
+            list[Message]: 所有警告/错误消息
+        """
+        all_warnings: list[Message] = []
+        all_warnings.extend(ConfigValidator.validate_colors(config))
+        return all_warnings
+
+    @staticmethod
+    def validate_all_global_and_print(config: dict) -> bool:
+        """执行所有全局校验并打印结果。
+
+        Returns:
+            bool: True表示全部通过，False表示存在警告
+        """
+        warnings = ConfigValidator.validate_all_global(config)
+        if warnings:
+            print_msgs(warnings)
+            return False
+        return True
 
 
 def make_yaml_valid_dict(input: list) -> dict:
@@ -125,25 +321,10 @@ def verify_config_colors(config: dict) -> bool:
     """
     Ensures the keys set for colors are valid colorama.Fore attributes, or "None"
     :return: True if all keys are set correctly, False otherwise
+
+    保留此函数作为向后兼容的包装，实际逻辑委托给 ConfigValidator。
     """
-    all_valid_colors = True
-    for key, color in config["colors"].items():
-        upper_color = color.upper()
-        if upper_color == "NONE":
-            continue
-        if not getattr(colorama.Fore, upper_color, None):
-            print_msg(
-                Message(
-                    MsgText.InvalidColor,
-                    MsgStyle.NORMAL,
-                    {
-                        "key": key,
-                        "color": color,
-                    },
-                )
-            )
-            all_valid_colors = False
-    return all_valid_colors
+    return ConfigValidator.validate_colors_and_print(config)
 
 
 def load_config(config_path: str) -> dict:
@@ -216,14 +397,5 @@ def cmd_requires_valid_journal_name(func: Callable) -> Callable:
 
 
 def validate_journal_name(journal_name: str, config: dict) -> None:
-    if journal_name not in config["journals"]:
-        raise JrnlException(
-            Message(
-                MsgText.NoNamedJournal,
-                MsgStyle.ERROR,
-                {
-                    "journal_name": journal_name,
-                    "journals": list_journals(config),
-                },
-            ),
-        )
+    """保留此函数作为向后兼容的包装，实际逻辑委托给 ConfigValidator。"""
+    ConfigValidator.validate_journal_name(journal_name, config)

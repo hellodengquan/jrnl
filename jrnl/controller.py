@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 from jrnl import install
 from jrnl import plugins
 from jrnl import time
+from jrnl.config import ConfigValidator
 from jrnl.config import DEFAULT_JOURNAL_KEY
-from jrnl.config import get_config_path
 from jrnl.config import get_journal_name
 from jrnl.config import scope_config
 from jrnl.editor import get_text_from_editor
@@ -283,15 +283,10 @@ def _edit_search_results(
     1. Send the given journal entries to the user-configured editor
     2. Print out stats on any modifications to journal
     3. Write modifications to journal
+
+    editor配置校验 → ConfigValidator.validate_editor_configured
     """
-    if not config["editor"]:
-        raise JrnlException(
-            Message(
-                MsgText.EditorNotConfigured,
-                MsgStyle.ERROR,
-                {"config_file": get_config_path()},
-            )
-        )
+    ConfigValidator.validate_editor_configured(config)
 
     # separate entries we are not editing
     other_entries = _other_entries(journal, old_entries)
