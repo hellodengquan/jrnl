@@ -237,3 +237,132 @@ def make_journal_with_entries():
         return journal
 
     return _make
+
+
+class FastJrnlv2Encryption:
+    _PBKDF2_ITERATIONS = 100
+
+    def __init__(self, journal_name: str, config: dict):
+        from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+        self._impl = Jrnlv2Encryption(journal_name, config)
+        self._journal_name = journal_name
+        self._config = config
+        self._password: str | None = None
+        self._key: bytes | None = None
+        self._salt: bytes = b"\xf2\xd5q\x0e\xc1\x8d.\xde\xdc\x8e6t\x89\x04\xce\xf8"
+        self._encoding: str = "utf-8"
+        self._attempts: int = 0
+        self._max_attempts: int = 3
+        self._check_keyring: bool = True
+        self.check_keyring = False
+
+    @property
+    def password(self) -> str | None:
+        return self._password
+
+    @password.setter
+    def password(self, value: str | None):
+        self._password = value
+        if value is None:
+            self._key = None
+            return
+        self._derive_key()
+
+    def _derive_key(self) -> None:
+        import base64
+
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+        password = self._password.encode(self._encoding)
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=self._salt,
+            iterations=self._PBKDF2_ITERATIONS,
+            backend=default_backend(),
+        )
+        key = kdf.derive(password)
+        self._key = base64.urlsafe_b64encode(key)
+
+    def _encrypt(self, text: str) -> bytes:
+        from cryptography.fernet import Fernet
+
+        return Fernet(self._key).encrypt(text.encode(self._encoding))
+
+    def _decrypt(self, text: bytes) -> str | None:
+        from cryptography.fernet import Fernet
+        from cryptography.fernet import InvalidToken
+
+        try:
+            return Fernet(self._key).decrypt(text).decode(self._encoding)
+        except (InvalidToken, IndexError):
+            return None
+
+    def encrypt(self, text: str) -> bytes:
+        return self._encrypt(text)
+
+    def decrypt(self, text: bytes) -> str:
+        from jrnl.exception import JrnlException
+        from jrnl.messages import Message
+        from jrnl.messages import MsgStyle
+        from jrnl.messages import MsgText
+
+        if (result := self._decrypt(text)) is None:
+            raise JrnlException(
+                Message(MsgText.DecryptionFailedGeneric, MsgStyle.ERROR)
+            )
+        return result
+
+    def clear(self) -> None:
+        self._password = None
+        self._key = None
+        self._check_keyring = False
+
+
+def _make_enc_journal_config(tmp_path, journal_name="encrypted"):
+    journal_path = str(tmp_path / f"{journal_name}.journal")
+    return {
+        "journal": journal_path,
+        "encrypt": True,
+        "tagsymbols": "@",
+        "timeformat": "%Y-%m-%d %H:%M",
+        "default_hour": 9,
+        "default_minute": 0,
+        "highlight": True,
+        "linewrap": 79,
+        "indent_character": "|",
+        "editor": "",
+    }
+
+
+@pytest.fixture
+def make_fast_encrypted_journal(tmp_path):
+    def _make(journal_name="encrypted", password="testpass", tagsymbols="@"):
+        config = _make_enc_journal_config(tmp_path, journal_name)
+        config["tagsymbols"] = tagsymbols
+        journal = Journal(name=journal_name, **config)
+        journal.encryption_method = FastJrnlv2Encryption(journal_name, journal.config)
+        journal.encryption_method.check_keyring = False
+        journal.encryption_method.password = password
+        return journal
+
+    return _make
+
+
+@pytest.fixture
+def make_real_encrypted_journal(tmp_path):
+    from jrnl.encryption.Jrnlv2Encryption import Jrnlv2Encryption
+
+    def _make(journal_name="encrypted", password="testpass", tagsymbols="@"):
+        config = _make_enc_journal_config(tmp_path, journal_name)
+        config["tagsymbols"] = tagsymbols
+        journal = Journal(name=journal_name, **config)
+        journal.encryption_method = Jrnlv2Encryption(journal_name, journal.config)
+        journal.encryption_method.check_keyring = False
+        journal.encryption_method.password = password
+        return journal
+
+    return _make
