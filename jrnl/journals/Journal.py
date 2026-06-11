@@ -5,6 +5,7 @@ import datetime
 import logging
 import os
 import re
+from difflib import SequenceMatcher
 
 from jrnl import time
 from jrnl.config import validate_journal_name
@@ -415,6 +416,60 @@ class Journal:
             self.added_entry_count += len(mod_entries) - len(self.entries)
         else:
             self.deleted_entry_count += len(self.entries) - len(mod_entries)
+
+    SIMILARITY_THRESHOLD = 0.4
+
+    def find_similar_entries(self, raw: str, date=None) -> list[tuple["Entry", float]]:
+        if not date:
+            colon_pos = raw.find(": ")
+            if colon_pos > 0:
+                date = time.parse(
+                    raw[:colon_pos],
+                    default_hour=self.config["default_hour"],
+                    default_minute=self.config["default_minute"],
+                )
+        if not date:
+            date = time.parse("now")
+
+        same_day_entries = [
+            e for e in self.entries
+            if e.date.date() == date.date()
+        ]
+
+        similar = []
+        for entry in same_day_entries:
+            score = self.compute_similarity(raw, entry.fulltext)
+            if score >= self.SIMILARITY_THRESHOLD:
+                similar.append((entry, score))
+
+        similar.sort(key=lambda x: x[1], reverse=True)
+        return similar
+
+    @staticmethod
+    def compute_similarity(text1: str, text2: str) -> float:
+        def normalize(text):
+            text = text.lower().strip()
+            text = re.sub(r'[^\w\s]', '', text)
+            text = re.sub(r'\s+', ' ', text)
+            return text
+
+        n1 = normalize(text1)
+        n2 = normalize(text2)
+        if not n1 or not n2:
+            return 0.0
+        return SequenceMatcher(None, n1, n2).ratio()
+
+    @staticmethod
+    def merge_texts(original: str, new: str) -> str:
+        orig_lines = [l for l in original.strip().splitlines() if l.strip()]
+        new_lines = [l for l in new.strip().splitlines() if l.strip()]
+
+        merged_lines = list(orig_lines)
+        for line in new_lines:
+            if line not in orig_lines:
+                merged_lines.append(line)
+
+        return "\n".join(merged_lines)
 
     def get_change_counts(self) -> dict:
         return {

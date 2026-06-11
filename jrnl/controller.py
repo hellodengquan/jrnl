@@ -137,6 +137,7 @@ def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -
     2. Check input being piped in
     3. Open editor if configured (prepopulated with template if available)
     4. Use stdin.read as last resort
+    5. Check for similar entries on the same date and prompt for merge
     6. Write any found text to journal, or exit
     """
     logging.debug("Append mode: starting")
@@ -165,7 +166,13 @@ def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -
     logging.debug(
         f"Append mode: appending raw text to journal '{args.journal_name}': {raw}"
     )
-    journal.new_entry(raw)
+
+    similar_entries = journal.find_similar_entries(raw)
+    if similar_entries:
+        _handle_similar_entries(journal, raw, similar_entries, args)
+    else:
+        journal.new_entry(raw)
+
     if args.journal_name != DEFAULT_JOURNAL_KEY:
         print_msg(
             Message(
@@ -176,6 +183,98 @@ def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -
         )
     journal.write()
     logging.debug("Append mode: completed journal.write()")
+
+
+def _handle_similar_entries(
+    journal: "Journal",
+    raw: str,
+    similar_entries: list[tuple["Entry", float]],
+    args: "Namespace",
+) -> None:
+    num = len(similar_entries)
+    if num == 1:
+        print_msg(Message(MsgText.SimilarEntryFound, MsgStyle.WARNING))
+    else:
+        print_msg(
+            Message(
+                MsgText.SimilarEntriesFound,
+                MsgStyle.WARNING,
+                {"num": num},
+            )
+        )
+
+    add_new = True
+
+    for similar_entry, score in similar_entries:
+        choice = _prompt_merge_choice(journal, raw, similar_entry, score)
+
+        if choice == "2":
+            add_new = False
+        elif choice == "3":
+            if similar_entry in journal.entries:
+                journal.entries.remove(similar_entry)
+                journal.deleted_entry_count += 1
+        elif choice == "4":
+            add_new = False
+            merged_text = journal.merge_texts(similar_entry.fulltext, raw)
+            if similar_entry in journal.entries:
+                similar_entry.text = merged_text
+                similar_entry._title = None
+                similar_entry._body = None
+                similar_entry._tags = None
+                similar_entry._parse_text()
+                similar_entry.modified = True
+
+    if add_new:
+        journal.new_entry(raw)
+
+
+def _prompt_merge_choice(
+    journal: "Journal",
+    raw: str,
+    similar_entry: "Entry",
+    score: float,
+) -> str:
+    merged_text = journal.merge_texts(similar_entry.fulltext, raw)
+
+    print_msg(Message(MsgText.MergePreviewTitle, MsgStyle.TITLE))
+    print()
+    print(
+        f"  {str(MsgText.MergePreviewOriginal).format(original_text=similar_entry.fulltext)}"
+    )
+    print()
+    print(
+        f"  {str(MsgText.MergePreviewMerged).format(merged_text=merged_text)}"
+    )
+    print()
+    print(f"  [New] {raw}")
+    print()
+    print(f"  (Similarity: {score:.0%})")
+    print()
+
+    msgs = [
+        Message(
+            MsgText.MergeKeepQuestion,
+            MsgStyle.NORMAL,
+            {"entry_title": similar_entry.pprint(short=True)},
+        ),
+        Message(MsgText.MergeKeepBoth, MsgStyle.NORMAL),
+        Message(MsgText.MergeKeepOriginal, MsgStyle.NORMAL),
+        Message(MsgText.MergeKeepNew, MsgStyle.NORMAL),
+        Message(MsgText.MergeKeepMerged, MsgStyle.NORMAL),
+    ]
+
+    print_msg(Message(MsgText.MergeChoicePrompt, MsgStyle.PROMPT))
+
+    response = print_msgs(msgs, style=MsgStyle.PROMPT, get_input=True)
+
+    choice = str(response).strip()
+
+    if choice not in ("1", "2", "3", "4"):
+        print_msg(Message(MsgText.MergeAbortedKeepOriginal, MsgStyle.WARNING))
+        return "2"
+
+    return choice
 
 
 def _get_template(args, config) -> str:

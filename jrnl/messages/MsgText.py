@@ -284,6 +284,19 @@ class MsgText(Enum):
 
     KeyringRetrievalFailure = "Failed to retrieve keyring"
 
+    SimilarEntryFound = "Similar entry found on the same date:"
+    SimilarEntriesFound = "{num} similar entries found on the same date:"
+    MergePreviewTitle = "Merge preview:"
+    MergePreviewMerged = "[Merged] {merged_text}"
+    MergePreviewOriginal = "[Original] {original_text}"
+    MergeKeepQuestion = "Keep option for similar entry '{entry_title}':"
+    MergeKeepBoth = "1) Keep both"
+    MergeKeepOriginal = "2) Keep original only"
+    MergeKeepNew = "3) Keep new only"
+    MergeKeepMerged = "4) Keep merged version"
+    MergeAbortedKeepOriginal = "Keeping original entry, new entry discarded"
+    MergeChoicePrompt = "Enter your choice [1-4]:"
+
     # --- Deprecation --- #
     DeprecatedCommand = """
         The command {old_cmd} is deprecated and will be removed from jrnl soon.
