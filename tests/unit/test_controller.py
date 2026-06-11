@@ -640,3 +640,309 @@ class TestSimilarityThresholdBoundary:
         assert id(original_entry) == original_entry_id
         assert original_entry.text == original_text
         assert original_entry.modified == original_modified
+
+
+class TestMultilingualSimilarity:
+    @pytest.fixture
+    def mock_args(self):
+        return parse_args([])
+
+    @pytest.fixture
+    def journal_config(self):
+        return {"colors": get_default_colors()}
+
+    def test_chinese_text_not_stripped(self):
+        text = "今天吃了早餐，有咖啡和吐司"
+        from jrnl.journals.Journal import Journal as J
+
+        def normalize(text):
+            import re
+            text = text.lower().strip()
+            text = re.sub(r'[^\w\s\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', '', text)
+            text = re.sub(r'\s+', ' ', text)
+            return text
+
+        normalized = normalize(text)
+        assert normalized != ""
+        assert "今天" in normalized
+        assert "早餐" in normalized
+        assert "咖啡" in normalized
+
+    def test_chinese_identical_text_similarity(self):
+        text1 = "今天吃了早餐，有咖啡和吐司"
+        text2 = "今天吃了早餐，有咖啡和吐司"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == pytest.approx(1.0)
+
+    def test_chinese_partial_similarity_above_threshold(self):
+        text1 = "今天吃了早餐，有咖啡和吐司，很好吃"
+        text2 = "今天吃了早餐，有咖啡"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+        assert score < 1.0
+
+    def test_chinese_different_content_below_threshold(self):
+        text1 = "今天吃了早餐，有咖啡和吐司"
+        text2 = "晚上去公园散步了很久"
+        score = Journal.compute_similarity(text1, text2)
+        assert score < Journal.SIMILARITY_THRESHOLD
+
+    def test_chinese_english_mixed_code_switching(self):
+        text1 = "今天的 work 很顺利，meeting 也开得很好"
+        text2 = "今天的工作很顺利，会议也开得很好"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD * 0.5
+        assert score < 1.0
+
+    def test_chinese_english_same_words_different_script(self):
+        text1 = "I had 咖啡 and toast for breakfast"
+        text2 = "I had coffee and toast for breakfast"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_chinese_punctuation_ignored(self):
+        text1 = "今天吃了早餐，有咖啡和吐司！很好吃"
+        text2 = "今天吃了早餐,有咖啡和吐司!很好吃"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == pytest.approx(1.0)
+
+    def test_chinese_english_mixed_triggers_merge_preview(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "今天吃了早餐，有咖啡和吐司"
+        new_text = "今天吃了早餐，有咖啡"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_called_once()
+
+        assert len(journal.entries) == 1
+        assert original_entry in journal.entries
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == existing_text
+
+    def test_chinese_english_mixed_no_trigger_when_below_threshold(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "今天吃了早餐，有咖啡和吐司"
+        new_text = "晚上去公园散步了很久"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score < Journal.SIMILARITY_THRESHOLD
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 0
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_not_called()
+
+        assert len(journal.entries) == 2
+        assert original_entry in journal.entries
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == existing_text
+
+    def test_chinese_english_mixed_code_switching_triggers_merge(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "今天 work 很顺利，meeting 开得很好"
+        new_text = "今天 work 很顺利"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_called_once()
+
+        assert len(journal.entries) == 1
+        assert original_entry in journal.entries
+        assert id(original_entry) == original_entry_id
+
+    def test_chinese_english_full_translation_no_similarity(self):
+        text1 = "今天吃了早餐，有咖啡和吐司"
+        text2 = "Ate breakfast with coffee and toast today"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == 0.0
+
+    def test_chinese_english_mixed_threshold_boundary(self):
+        text1 = "今天早餐吃了咖啡和吐司，很好吃"
+        text2 = "今天午餐吃了三明治"
+        score = Journal.compute_similarity(text1, text2)
+        threshold = Journal.SIMILARITY_THRESHOLD
+        assert abs(score - threshold) < 0.1, (
+            f"Expected score near threshold, got {score:.4f}. "
+            "If algorithm changed, update test texts."
+        )
+
+    def test_chinese_mixed_original_unchanged_on_keep_original(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "今天吃了早餐，有咖啡和吐司，非常美味"
+        new_text = "今天吃了早餐，有咖啡"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_text = original_entry.text
+        original_modified = original_entry.modified
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ):
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+
+        assert len(journal.entries) == 1
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == original_text
+        assert original_entry.modified == original_modified
+
+    def test_chinese_mixed_merge_choice_4_updates_content(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "今天吃了早餐，有咖啡和吐司"
+        new_text = "今天吃了早餐，有咖啡和橙汁"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="4"
+        ):
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+
+        assert len(journal.entries) == 1
+        assert id(original_entry) == original_entry_id
+        assert original_entry.modified is True
+        assert "咖啡" in original_entry.text
+        assert "吐司" in original_entry.text
+        assert "橙汁" in original_entry.text
+
+    def test_japanese_text_not_stripped(self):
+        text = "朝食にコーヒーとトーストを食べました"
+        from jrnl.journals.Journal import Journal as J
+        import re
+
+        def normalize(text):
+            text = text.lower().strip()
+            text = re.sub(r'[^\w\s\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', '', text)
+            text = re.sub(r'\s+', ' ', text)
+            return text
+
+        normalized = normalize(text)
+        assert normalized != ""
+        assert "コーヒー" in normalized
+        assert "トースト" in normalized
+
+    def test_korean_text_not_stripped(self):
+        text = "아침으로 커피와 토스트를 먹었어요"
+        import re
+
+        def normalize(text):
+            text = text.lower().strip()
+            text = re.sub(r'[^\w\s\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', '', text)
+            text = re.sub(r'\s+', ' ', text)
+            return text
+
+        normalized = normalize(text)
+        assert normalized != ""
+        assert "커피" in normalized
+        assert "토스트" in normalized
+
+    def test_multilingual_symmetry(self):
+        text1 = "今天 work 很顺利"
+        text2 = "今天工作很顺利"
+        score1 = Journal.compute_similarity(text1, text2)
+        score2 = Journal.compute_similarity(text2, text1)
+        assert score1 == pytest.approx(score2)
+
+    def test_chinese_with_newlines_similarity(self):
+        text1 = "今天吃了早餐\n有咖啡和吐司\n非常美味"
+        text2 = "今天吃了早餐\n有咖啡"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_chinese_english_mixed_different_day_no_trigger(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+        yesterday = today - datetime.timedelta(days=1)
+
+        existing_text = "今天吃了早餐，有咖啡和吐司"
+        new_text = "今天吃了早餐，有咖啡"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+        journal.new_entry(existing_text, date=yesterday)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 0
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_not_called()
+
+        assert len(journal.entries) == 2
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == existing_text

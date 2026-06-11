@@ -449,7 +449,7 @@ class Journal:
     def compute_similarity(text1: str, text2: str) -> float:
         def normalize(text):
             text = text.lower().strip()
-            text = re.sub(r'[^\w\s]', '', text)
+            text = re.sub(r'[^\w\s\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', '', text)
             text = re.sub(r'\s+', ' ', text)
             return text
 
