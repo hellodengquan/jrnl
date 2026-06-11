@@ -356,3 +356,287 @@ class TestMergeChoices:
         found_new = [e for e in journal.entries if id(e) != original_entry_id]
         assert len(found_new) == 1
         assert found_new[0].text == new_text
+
+
+class TestSimilarityThresholdBoundary:
+    @pytest.fixture
+    def mock_args(self):
+        return parse_args([])
+
+    @pytest.fixture
+    def journal_config(self):
+        return {"colors": get_default_colors()}
+
+    def test_similarity_at_threshold_triggers_merge_preview(self):
+        threshold = Journal.SIMILARITY_THRESHOLD
+        existing_text = "I had a great day at work today"
+        new_text = "Work day was quite productive"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score == pytest.approx(threshold), (
+            f"Expected similarity to be exactly at threshold {threshold}, got {score}. "
+            "If the algorithm changed, update the test text pairs."
+        )
+        assert score >= threshold
+
+    def test_similarity_below_threshold_no_merge_preview(self):
+        threshold = Journal.SIMILARITY_THRESHOLD
+        existing_text = "Had a great day at work today"
+        new_text = "Went to work and had meetings"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score < threshold
+        assert score >= threshold - 0.1, (
+            f"Expected similarity to be close to threshold {threshold}, got {score}. "
+            "If the algorithm changed, update the test text pairs."
+        )
+
+    def test_similarity_slightly_above_threshold_triggers_preview(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "Ate breakfast with coffee and toast"
+        new_text = "Ate lunch with sandwich"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        threshold = Journal.SIMILARITY_THRESHOLD
+        assert score >= threshold
+        assert score < threshold + 0.1
+
+        journal.new_entry(existing_text, date=today)
+        original_entry_id = id(journal.entries[0])
+        original_modified_state = journal.entries[0].modified
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+        assert similar[0][1] == pytest.approx(score)
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_called_once()
+
+        assert len(journal.entries) == 1
+        assert id(journal.entries[0]) == original_entry_id
+        assert journal.entries[0].text == existing_text
+        assert journal.entries[0].modified == original_modified_state
+
+    def test_similarity_slightly_below_threshold_no_preview(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "Had coffee toast and eggs for breakfast"
+        new_text = "For breakfast had toast and coffee"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        threshold = Journal.SIMILARITY_THRESHOLD
+        assert score < threshold
+        assert score >= threshold - 0.1
+
+        journal.new_entry(existing_text, date=today)
+        original_entry_id = id(journal.entries[0])
+        original_modified_state = journal.entries[0].modified
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 0
+
+        _handle_similar_entries(journal, new_text, similar, mock_args)
+
+        assert len(journal.entries) == 2
+
+        found_original = [e for e in journal.entries if id(e) == original_entry_id]
+        assert len(found_original) == 1
+        assert found_original[0].text == existing_text
+        assert found_original[0].modified == original_modified_state
+
+        found_new = [e for e in journal.entries if id(e) != original_entry_id]
+        assert len(found_new) == 1
+        assert found_new[0].text == new_text
+
+    def test_no_prompt_when_no_similar_entries(self, mock_args, journal_config):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "Morning routine had coffee and toast"
+        new_text = "Afternoon walk in park"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        threshold = Journal.SIMILARITY_THRESHOLD
+        assert score < threshold
+
+        journal.new_entry(existing_text, date=today)
+        original_entry_id = id(journal.entries[0])
+        original_entry = journal.entries[0]
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 0
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_not_called()
+
+        assert len(journal.entries) == 2
+        assert original_entry in journal.entries
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == existing_text
+
+    def test_threshold_sensitive_to_algorithm_changes(self):
+        text_a = "I had a great day at work today"
+        text_b = "Work day was quite productive"
+
+        score = Journal.compute_similarity(text_a, text_b)
+        expected_threshold = 0.4
+
+        assert Journal.SIMILARITY_THRESHOLD == expected_threshold, (
+            f"Threshold constant changed from {expected_threshold} to {Journal.SIMILARITY_THRESHOLD}. "
+            "If this is intentional, update the threshold boundary test text pairs."
+        )
+
+        assert score == pytest.approx(expected_threshold), (
+            f"Similarity algorithm output changed. "
+            f"Expected score to be approximately {expected_threshold} for test text pair, "
+            f"got {score}. If the algorithm was intentionally changed, "
+            "update the test text pairs to maintain threshold boundary coverage."
+        )
+
+        score_reversed = Journal.compute_similarity(text_b, text_a)
+        assert score == pytest.approx(score_reversed), (
+            f"Similarity should be symmetric. "
+            f"score(a→b): {score:.4f}, score(b→a): {score_reversed:.4f}"
+        )
+
+    def test_original_unchanged_when_below_threshold(self, mock_args, journal_config):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "Had a great day at work today"
+        new_text_below = "Went to work and had meetings"
+
+        score = Journal.compute_similarity(existing_text, new_text_below)
+        threshold = Journal.SIMILARITY_THRESHOLD
+        assert score < threshold
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_text = original_entry.text
+        original_modified = original_entry.modified
+
+        similar = journal.find_similar_entries(new_text_below, date=today)
+        assert len(similar) == 0
+
+        _handle_similar_entries(journal, new_text_below, similar, mock_args)
+
+        assert original_entry in journal.entries
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == original_text
+        assert original_entry.modified == original_modified
+
+    def test_original_unchanged_when_above_threshold_keep_original(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "I had a great day at work today"
+        new_text_above = "Work day was quite productive"
+
+        score = Journal.compute_similarity(existing_text, new_text_above)
+        threshold = Journal.SIMILARITY_THRESHOLD
+        assert score >= threshold
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_text = original_entry.text
+        original_modified = original_entry.modified
+
+        similar = journal.find_similar_entries(new_text_above, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ):
+            _handle_similar_entries(journal, new_text_above, similar, mock_args)
+
+        assert len(journal.entries) == 1
+        assert original_entry in journal.entries
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == original_text
+        assert original_entry.modified == original_modified
+
+    def test_exactly_at_threshold_triggers_merge_preview(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "I had a great day at work today"
+        new_text = "Work day was quite productive"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        threshold = Journal.SIMILARITY_THRESHOLD
+        assert score == pytest.approx(threshold)
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_modified_state = original_entry.modified
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+        assert similar[0][1] == pytest.approx(threshold)
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_called_once()
+
+        assert len(journal.entries) == 1
+        assert original_entry in journal.entries
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == existing_text
+        assert original_entry.modified == original_modified_state
+
+    def test_above_threshold_different_day_no_merge_preview(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+        yesterday = today - datetime.timedelta(days=1)
+
+        existing_text = "I had a great day at work today"
+        new_text = "Work day was quite productive"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        threshold = Journal.SIMILARITY_THRESHOLD
+        assert score >= threshold
+
+        journal.new_entry(existing_text, date=yesterday)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_text = original_entry.text
+        original_modified = original_entry.modified
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 0
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_not_called()
+
+        assert len(journal.entries) == 2
+        assert original_entry in journal.entries
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == original_text
+        assert original_entry.modified == original_modified

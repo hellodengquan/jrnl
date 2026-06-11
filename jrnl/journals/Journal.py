@@ -438,7 +438,7 @@ class Journal:
 
         similar = []
         for entry in same_day_entries:
-            score = self.compute_similarity(raw, entry.fulltext)
+            score = self.compute_similarity(raw, entry.fulltext.strip())
             if score >= self.SIMILARITY_THRESHOLD:
                 similar.append((entry, score))
 
@@ -457,7 +457,9 @@ class Journal:
         n2 = normalize(text2)
         if not n1 or not n2:
             return 0.0
-        return SequenceMatcher(None, n1, n2).ratio()
+        score1 = SequenceMatcher(None, n1, n2).ratio()
+        score2 = SequenceMatcher(None, n2, n1).ratio()
+        return max(score1, score2)
 
     @staticmethod
     def merge_texts(original: str, new: str) -> str:
