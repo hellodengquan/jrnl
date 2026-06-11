@@ -946,3 +946,323 @@ class TestMultilingualSimilarity:
         assert len(journal.entries) == 2
         assert id(original_entry) == original_entry_id
         assert original_entry.text == existing_text
+
+
+class TestSpecialCharacterSimilarity:
+    @pytest.fixture
+    def mock_args(self):
+        return parse_args([])
+
+    @pytest.fixture
+    def journal_config(self):
+        return {"colors": get_default_colors()}
+
+    # --- 表情符号测试 ---
+
+    def test_emoji_not_affect_similarity_identical_text(self):
+        text1 = "今天心情很好"
+        text2 = "今天心情很好 😊"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= 0.9
+
+    def test_emoji_only_text_returns_zero(self):
+        text1 = "😊☕️🥐"
+        text2 = "🍔🍟😢"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == 0.0
+
+    def test_emoji_different_semantic_not_false_positive(self):
+        text1 = "早餐 ☕️🥐"
+        text2 = "午餐 🍔🍟"
+        score = Journal.compute_similarity(text1, text2)
+        assert score < Journal.SIMILARITY_THRESHOLD
+
+    def test_emoji_different_mood_not_false_positive(self):
+        text1 = "今天心情很好 😊"
+        text2 = "今天心情很差 😢"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_emoji_heart_vs_word(self):
+        text1 = "I love Python programming"
+        text2 = "I ❤️ Python programming"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_emoji_triggers_merge_preview_when_text_similar(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "今天心情很好 😊"
+        new_text = "今天心情很好"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_called_once()
+
+        assert len(journal.entries) == 1
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == existing_text
+
+    def test_emoji_false_positive_prevented(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "早餐 ☕️🥐"
+        new_text = "午餐 🍔🍟"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score < Journal.SIMILARITY_THRESHOLD
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 0
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_not_called()
+
+        assert len(journal.entries) == 2
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == existing_text
+
+    # --- 全角半角测试 ---
+
+    def test_fullwidth_halfwidth_letters_identical(self):
+        text1 = "hello world"
+        text2 = "ｈｅｌｌｏ　ｗｏｒｌｄ"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == pytest.approx(1.0)
+
+    def test_fullwidth_halfwidth_mixed_identical(self):
+        text1 = "第1名 A-B-C"
+        text2 = "第１名 Ａ－Ｂ－Ｃ"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == pytest.approx(1.0)
+
+    def test_fullwidth_halfwidth_punctuation_ignored(self):
+        text1 = "hello, world!"
+        text2 = "ｈｅｌｌｏ，　ｗｏｒｌｄ！"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == pytest.approx(1.0)
+
+    def test_fullwidth_halfwidth_triggers_merge_preview(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "hello world"
+        new_text = "ｈｅｌｌｏ　ｗｏｒｌｄ"
+
+        score = Journal.compute_similarity(existing_text, new_text)
+        assert score == pytest.approx(1.0)
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_called_once()
+
+        assert len(journal.entries) == 1
+        assert id(original_entry) == original_entry_id
+
+    # --- 代码片段测试 ---
+
+    def test_code_snippets_similar_structure_different_logic(self):
+        text1 = "def add(a, b): return a + b"
+        text2 = "def subtract(a, b): return a - b"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_code_snippets_with_natural_language(self):
+        text1 = "Today I wrote: x = 42; print(x)"
+        text2 = "Today I wrote: y = 100; print(y)"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_code_vs_lunch_not_false_positive(self):
+        text1 = "Debugged the issue: x = 42; print(x)"
+        text2 = "Had lunch with colleagues"
+        score = Journal.compute_similarity(text1, text2)
+        assert score < Journal.SIMILARITY_THRESHOLD
+
+    def test_code_different_error_types_above_threshold(self):
+        text1 = "代码报错了: TypeError: cannot read property"
+        text2 = "代码报错了: ReferenceError: undefined is not"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    # --- 特殊符号测试 ---
+
+    def test_special_symbols_hashtag_different_words(self):
+        text1 = "Went to the store #shopping"
+        text2 = "Went to the store #grocery"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_special_symbols_at_sign_time(self):
+        text1 = "Meeting @ 3pm"
+        text2 = "Meeting @ 5pm"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_special_symbols_markdown_bold(self):
+        text1 = "Hello **world**"
+        text2 = "Hello *world*"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == pytest.approx(1.0)
+
+    def test_special_symbols_angle_brackets(self):
+        text1 = "See <link> for details"
+        text2 = "See <attachment> for details"
+        score = Journal.compute_similarity(text1, text2)
+        assert score >= Journal.SIMILARITY_THRESHOLD
+
+    def test_special_symbols_currency_signs_ignored(self):
+        text1 = "Project cost ~$1000"
+        text2 = "Project cost ~€1000"
+        score = Journal.compute_similarity(text1, text2)
+        assert score == pytest.approx(1.0)
+
+    # --- 核心约束：原文不被修改 ---
+
+    def test_emoji_original_unchanged_on_keep_original(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "今天心情很好 😊"
+        new_text = "今天心情很好"
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_text = original_entry.text
+        original_modified = original_entry.modified
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ):
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+
+        assert len(journal.entries) == 1
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == original_text
+        assert original_entry.modified == original_modified
+
+    def test_code_original_unchanged_on_keep_original(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "Today I wrote: x = 42; print(x)"
+        new_text = "Today I wrote: y = 100; print(y)"
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_text = original_entry.text
+        original_modified = original_entry.modified
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ):
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+
+        assert len(journal.entries) == 1
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == original_text
+        assert original_entry.modified == original_modified
+
+    def test_short_emoji_only_no_merge_no_change(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "🏆"
+        new_text = "🍜"
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_text = original_entry.text
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 0
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice"
+        ) as mock_prompt:
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+            mock_prompt.assert_not_called()
+
+        assert len(journal.entries) == 2
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == original_text
+
+    def test_fullwidth_original_unchanged_on_keep_original(
+        self, mock_args, journal_config
+    ):
+        journal = Journal(**journal_config)
+        today = datetime.datetime.now()
+
+        existing_text = "hello world"
+        new_text = "ｈｅｌｌｏ　ｗｏｒｌｄ"
+
+        journal.new_entry(existing_text, date=today)
+        original_entry = journal.entries[0]
+        original_entry_id = id(original_entry)
+        original_text = original_entry.text
+        original_modified = original_entry.modified
+
+        similar = journal.find_similar_entries(new_text, date=today)
+        assert len(similar) == 1
+
+        with mock.patch(
+            "jrnl.controller._prompt_merge_choice", return_value="2"
+        ):
+            _handle_similar_entries(journal, new_text, similar, mock_args)
+
+        assert len(journal.entries) == 1
+        assert id(original_entry) == original_entry_id
+        assert original_entry.text == original_text
+        assert original_entry.modified == original_modified
+        assert "hello world" == original_text

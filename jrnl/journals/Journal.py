@@ -20,6 +20,19 @@ from jrnl.prompt import yesno
 from .Entry import Entry
 
 
+def _fullwidth_to_halfwidth(text: str) -> str:
+    result = []
+    for char in text:
+        code = ord(char)
+        if 0xFF01 <= code <= 0xFF5E:
+            result.append(chr(code - 0xFEE0))
+        elif code == 0x3000:
+            result.append(' ')
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
 class Tag:
     def __init__(self, name, count=0):
         self.name = name
@@ -449,13 +462,21 @@ class Journal:
     def compute_similarity(text1: str, text2: str) -> float:
         def normalize(text):
             text = text.lower().strip()
-            text = re.sub(r'[^\w\s\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', '', text)
+            text = _fullwidth_to_halfwidth(text)
+            text = re.sub(
+                r'[^\w\s\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]',
+                '',
+                text,
+            )
             text = re.sub(r'\s+', ' ', text)
             return text
 
         n1 = normalize(text1)
         n2 = normalize(text2)
         if not n1 or not n2:
+            return 0.0
+        min_len = min(len(n1), len(n2))
+        if min_len < 5:
             return 0.0
         score1 = SequenceMatcher(None, n1, n2).ratio()
         score2 = SequenceMatcher(None, n2, n1).ratio()
