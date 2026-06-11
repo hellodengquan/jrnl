@@ -68,9 +68,7 @@ def upgrade_jrnl(config_path: str) -> None:
             encrypt = config.get("encrypt")
             path = expand_path(journal_conf)
 
-        if os.path.exists(path):
-            path = os.path.expanduser(path)
-        else:
+        if not os.path.exists(path):
             print_msg(Message(MsgText.DoesNotExist, MsgStyle.ERROR, {"name": path}))
             continue
 
