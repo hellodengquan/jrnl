@@ -1,6 +1,7 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+import os
 import os.path
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from jrnl.exception import JrnlException
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
+from jrnl.output import print_msg
 
 # Constants
 XDG_RESOURCE = "jrnl"
@@ -70,3 +72,41 @@ def get_config_path() -> str:
     except JrnlException:
         return os.path.join(home_dir(), DEFAULT_CONFIG_NAME)
     return os.path.join(config_directory_path, DEFAULT_CONFIG_NAME)
+
+
+def expand_journal_path(path: str) -> str:
+    return expand_path(path)
+
+
+def ensure_journal_directory(path: str) -> bool:
+    dirname = os.path.dirname(path)
+    if dirname and not os.path.isdir(dirname):
+        os.makedirs(dirname)
+        print_msg(
+            Message(
+                MsgText.DirectoryCreated,
+                MsgStyle.NORMAL,
+                {"directory_name": dirname},
+            )
+        )
+        return True
+    return False
+
+
+def create_journal_file(path: str, journal_name: str) -> None:
+    with open(path, "w"):
+        pass
+    print_msg(
+        Message(
+            MsgText.JournalCreated,
+            MsgStyle.NORMAL,
+            {
+                "journal_name": journal_name,
+                "filename": path,
+            },
+        )
+    )
+
+
+def journal_path_exists(path: str) -> bool:
+    return os.path.exists(path)

@@ -16,12 +16,13 @@ from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.output import print_msg
 from jrnl.output import print_msgs
-from jrnl.path import expand_path
+from jrnl.path import expand_journal_path
+from jrnl.path import journal_path_exists
 from jrnl.prompt import yesno
 
 
 def backup(filename: str, binary: bool = False):
-    filename = expand_path(filename)
+    filename = expand_journal_path(filename)
 
     try:
         with open(filename, "rb" if binary else "r") as original:
@@ -47,7 +48,7 @@ def check_exists(path: str) -> bool:
     """
     Checks if a given path exists.
     """
-    return os.path.exists(path)
+    return journal_path_exists(expand_journal_path(path))
 
 
 def upgrade_jrnl(config_path: str) -> None:
@@ -62,13 +63,13 @@ def upgrade_jrnl(config_path: str) -> None:
 
     for journal_name, journal_conf in config["journals"].items():
         if isinstance(journal_conf, dict):
-            path = expand_path(journal_conf.get("journal"))
+            path = expand_journal_path(journal_conf.get("journal"))
             encrypt = journal_conf.get("encrypt")
         else:
             encrypt = config.get("encrypt")
-            path = expand_path(journal_conf)
+            path = expand_journal_path(journal_conf)
 
-        if not os.path.exists(path):
+        if not journal_path_exists(path):
             print_msg(Message(MsgText.DoesNotExist, MsgStyle.ERROR, {"name": path}))
             continue
 

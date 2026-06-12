@@ -13,7 +13,10 @@ from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.output import print_msg
-from jrnl.path import expand_path
+from jrnl.path import expand_journal_path
+from jrnl.path import ensure_journal_directory
+from jrnl.path import create_journal_file
+from jrnl.path import journal_path_exists
 from jrnl.prompt import yesno
 
 from .Entry import Entry
@@ -104,30 +107,11 @@ class Journal:
     def open(self, filename: str | None = None) -> "Journal":
         """Opens the journal file and parses it into a list of Entries
         Entries have the form (date, title, body)."""
-        filename = filename or self.config["journal"]
-        dirname = os.path.dirname(filename)
-        if not os.path.exists(filename):
-            if not os.path.isdir(dirname):
-                os.makedirs(dirname)
-                print_msg(
-                    Message(
-                        MsgText.DirectoryCreated,
-                        MsgStyle.NORMAL,
-                        {"directory_name": dirname},
-                    )
-                )
-            self.create_file(filename)
-            print_msg(
-                Message(
-                    MsgText.JournalCreated,
-                    MsgStyle.NORMAL,
-                    {
-                        "journal_name": self.name,
-                        "filename": filename,
-                    },
-                )
-            )
-            self.write()
+        filename = expand_journal_path(filename or self.config["journal"])
+        if not journal_path_exists(filename):
+            ensure_journal_directory(filename)
+            create_journal_file(filename, self.name)
+            self.write(filename)
 
         text = self._load(filename)
         text = self._decrypt(text)
@@ -138,7 +122,7 @@ class Journal:
 
     def write(self, filename: str | None = None) -> None:
         """Dumps the journal into the config file, overwriting it"""
-        filename = filename or self.config["journal"]
+        filename = expand_journal_path(filename or self.config["journal"])
         text = self._to_text()
         text = self._encrypt(text)
         self._store(filename, text)
@@ -485,7 +469,7 @@ def open_journal(journal_name: str, config: dict, legacy: bool = False) -> Journ
     logging.debug(f"open_journal '{journal_name}'")
     validate_journal_name(journal_name, config)
     config = config.copy()
-    config["journal"] = expand_path(config["journal"])
+    config["journal"] = expand_journal_path(config["journal"])
 
     if os.path.isdir(config["journal"]):
         if config["encrypt"]:
