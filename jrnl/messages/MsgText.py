@@ -289,3 +289,58 @@ class MsgText(Enum):
         The command {old_cmd} is deprecated and will be removed from jrnl soon.
         Please use {new_cmd} instead.
         """
+
+    # --- Doctor --- #
+    DoctorTitle = "jrnl Configuration Health Check"
+    DoctorSectionJournal = "Journal Path"
+    DoctorSectionEditor = "Editor"
+    DoctorSectionEncryption = "Encryption Dependencies"
+    DoctorSectionTemplate = "Template"
+    DoctorOK = "[OK]"
+    DoctorWarning = "[WARNING]"
+    DoctorError = "[ERROR]"
+    DoctorJournalPathOK = "Journal path exists: {path}"
+    DoctorJournalPathNotFound = "Journal path not found: {path}"
+    DoctorJournalPathNotWritable = "Journal path is not writable: {path}"
+    DoctorJournalPathIsDir = "Journal path is a directory: {path}"
+    DoctorJournalPathSuggestion = (
+        "Suggestion: Check the 'journal' path in your config file "
+        "and ensure it points to a valid file."
+    )
+    DoctorEditorOK = "Editor is available: {editor}"
+    DoctorEditorNotSet = "No editor configured"
+    DoctorEditorNotFound = "Editor not found: {editor}"
+    DoctorEditorNotSetSuggestion = (
+        "Suggestion: Set an editor in your config file "
+        "or set the VISUAL or EDITOR environment variable."
+    )
+    DoctorEditorNotFoundSuggestion = (
+        "Suggestion: Install '{editor}' or update your config "
+        "to use a different editor."
+    )
+    DoctorEncryptionOK = "Encryption dependencies are available"
+    DoctorEncryptionCryptographyMissing = "The 'cryptography' package is not installed."
+    DoctorEncryptionKeyringMissing = "The 'keyring' package is not installed."
+    DoctorEncryptionKeyringNoBackend = (
+        "No keyring backend available. Passwords will not be stored securely."
+    )
+    DoctorEncryptionSuggestion = (
+        "Suggestion: Install missing dependencies using "
+        "'pip install cryptography keyring'."
+    )
+    DoctorEncryptionKeyringSuggestion = (
+        "Suggestion: Install a keyring backend appropriate for your system."
+    )
+    DoctorTemplateOK = "Template file exists: {path}"
+    DoctorTemplateNotSet = "No template configured"
+    DoctorTemplateNotFound = "Template file not found: {path}"
+    DoctorTemplateNotReadable = "Template file is not readable: {path}"
+    DoctorTemplateSuggestion = (
+        "Suggestion: Check the 'template' path in your config file "
+        "or remove it if not needed."
+    )
+    DoctorTemplateNotFoundSuggestion = (
+        "Suggestion: Create the template file at {path} "
+        "or update the config to point to an existing file."
+    )
+    DoctorSummary = "Summary: {ok} OK, {warning} warning(s), {error} error(s)"

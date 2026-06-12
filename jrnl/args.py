@@ -6,6 +6,7 @@ import re
 import textwrap
 
 from jrnl.commands import postconfig_decrypt
+from jrnl.commands import postconfig_doctor
 from jrnl.commands import postconfig_encrypt
 from jrnl.commands import postconfig_import
 from jrnl.commands import postconfig_list
@@ -176,6 +177,21 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         --file FILENAME (default: uses stdin)
 
         --format [{util.oxford_list(IMPORT_FORMATS)}] (default: jrnl)
+        """,
+    )
+    standalone.add_argument(
+        "--doctor",
+        action="store_const",
+        const=postconfig_doctor,
+        dest="postconfig_cmd",
+        help="""
+        Perform a health check on your jrnl configuration.
+
+        Checks:
+        * Journal path existence and writability
+        * Editor availability
+        * Encryption dependencies (cryptography, keyring)
+        * Template file existence and readability
         """,
     )
     standalone.add_argument(
