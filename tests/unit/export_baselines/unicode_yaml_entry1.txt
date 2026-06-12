@@ -1,0 +1,15 @@
+---
+title: Python 代码示例。
+date: 2023-04-20 14:30
+starred: True
+tags: python, code
+body: |		
+	```python
+	def hello():
+	    print('Hello, World!')
+	    return True
+	```
+	
+	以上是示例代码。
+	代码结束。 @code @python
+...

@@ -1,0 +1,8 @@
+---
+title: 今日心情很好！
+date: 2023-03-15 10:00
+starred: False
+tags: done, happy
+body: |		
+	😀😅🎉 完成了重要任务 @done @happy
+...

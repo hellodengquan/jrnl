@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+<entry date="2023-04-20T14:30:00" starred="True">
+	<tag name="@python"/>
+	<tag name="@code"/>
+	Python 代码示例。 ```python
+def hello():
+    print('Hello, World!')
+    return True
+```
+
+以上是示例代码。
+代码结束。 @code @python
+</entry>
