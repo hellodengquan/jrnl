@@ -520,6 +520,71 @@ CHINESE_TRANSLATIONS = {
     "DoctorSummary": "汇总：{ok} 项通过，{warning} 项警告，{error} 项致命问题",
 }
 
+JAPANESE_TRANSLATIONS = {
+    "DoctorTitle": "jrnl 設定ヘルスチェック",
+    "DoctorSectionJournal": "ジャーナルパス",
+    "DoctorSectionEditor": "エディタ",
+    "DoctorSectionTemplate": "テンプレート",
+    "DoctorGroupFatal": "致命的問題（要修正）",
+    "DoctorGroupWarning": "警告（推奨修正）",
+    "DoctorGroupInfo": "情報（任意）",
+    "DoctorAllOk": "すべてのチェックに合格しました！",
+    "DoctorCategoryLabel": "カテゴリ",
+    "DoctorIssueLabel": "問題",
+    "DoctorSuggestionLabel": "提案",
+    "DoctorJournalPathOK": "ジャーナルパスが存在します：{path}",
+    "DoctorJournalPathNotFound": "ジャーナルパスが見つかりません：{path}",
+    "DoctorJournalPathNotWritable": "ジャーナルパスは書き込み不可：{path}",
+    "DoctorJournalPathIsDir": "ジャーナルパスはディレクトリです：{path}",
+    "DoctorJournalPathSuggestion": (
+        "設定ファイルの 'journal' パスを確認し、"
+        "有効なファイルを指していることを確認してください。"
+    ),
+    "DoctorEditorOK": "エディタが利用可能です：{editor}",
+    "DoctorEditorNotSet": "エディタが設定されていません",
+    "DoctorEditorNotFound": "エディタが見つかりません：{editor}",
+    "DoctorEditorNotSetSuggestion": (
+        "設定ファイルでエディタを指定するか、"
+        "VISUAL または EDITOR 環境変数を設定してください。"
+    ),
+    "DoctorEditorNotFoundSuggestion": (
+        "'{editor}' をインストールするか、"
+        "別のエディタを使用するように設定を更新してください。"
+    ),
+    "DoctorEncryptionOK": "暗号化依存関係が利用可能です",
+    "DoctorEncryptionCryptographyMissing": (
+        "'cryptography' パッケージが未インストールです。"
+    ),
+    "DoctorEncryptionKeyringMissing": (
+        "'keyring' パッケージが未インストールです。"
+    ),
+    "DoctorEncryptionKeyringNoBackend": (
+        "keyring バックエンドがありません。パスワードは安全に保存されません。"
+    ),
+    "DoctorEncryptionSuggestion": (
+        "'pip install cryptography keyring' で不足している依存関係を"
+        "インストールしてください。"
+    ),
+    "DoctorEncryptionKeyringSuggestion": (
+        "システムに適した keyring バックエンドをインストールしてください。"
+    ),
+    "DoctorTemplateOK": "テンプレートファイルが存在します：{path}",
+    "DoctorTemplateNotSet": "テンプレート未設定",
+    "DoctorTemplateNotFound": "テンプレートファイルが見つかりません：{path}",
+    "DoctorTemplateNotReadable": "テンプレートファイルが読み取れません：{path}",
+    "DoctorTemplateSuggestion": (
+        "設定ファイルの 'template' パスを確認するか、"
+        "不要な場合は削除してください。"
+    ),
+    "DoctorTemplateNotFoundSuggestion": (
+        "{path} にテンプレートファイルを作成するか、"
+        "既存のファイルを指すように設定を更新してください。"
+    ),
+    "DoctorSummary": (
+        "集計：{ok} 件合格、{warning} 件警告、{error} 件致命的問題"
+    ),
+}
+
 
 def _apply_msgtext_overrides(monkeypatch, overrides: dict[str, str]):
     """Override MsgText enum member values for i18n testing."""
@@ -751,3 +816,221 @@ class TestDoctorI18nMissingTranslation:
         assert isinstance(output, str)
         assert "some fatal issue" in output
         assert "fix it please" in output
+
+
+MIXED_RESULTS = [
+    {
+        "category": "Journal Path",
+        "level": "error",
+        "message": "path broken",
+        "suggestion": "fix path",
+    },
+    {
+        "category": "Editor",
+        "level": "warning",
+        "message": "no editor",
+        "suggestion": "set editor",
+    },
+    {
+        "category": "Encryption",
+        "level": "ok",
+        "message": "all good",
+        "suggestion": "",
+    },
+]
+
+
+def _assert_group_order(output, fatal_text, warn_text, info_text):
+    """Assert Fatal group appears before Warning group before Info group."""
+    fatal_pos = output.find(fatal_text)
+    warn_pos = output.find(warn_text)
+    info_pos = output.find(info_text)
+
+    assert fatal_pos != -1, (
+        f"Fatal group {fatal_text!r} must be present in output"
+    )
+    assert warn_pos != -1, (
+        f"Warning group {warn_text!r} must be present in output"
+    )
+    assert info_pos != -1, (
+        f"Info group {info_text!r} must be present in output"
+    )
+    assert fatal_pos < warn_pos, (
+        f"Fatal group ({fatal_text!r} at pos {fatal_pos}) must appear "
+        f"before Warning group ({warn_text!r} at pos {warn_pos})"
+    )
+    assert warn_pos < info_pos, (
+        f"Warning group ({warn_text!r} at pos {warn_pos}) must appear "
+        f"before Info group ({info_text!r} at pos {info_pos})"
+    )
+
+
+class TestDoctorI18nGroupOrder:
+    """Group ordering must remain Fatal→Warning→Info across all locales."""
+
+    def test_chinese_fatal_before_warning_before_info(self, monkeypatch):
+        _apply_msgtext_overrides(monkeypatch, CHINESE_TRANSLATIONS)
+        output = _render_to_string(MIXED_RESULTS, no_color=True)
+        _assert_group_order(
+            output,
+            "致命问题（必须修复）",
+            "警告（建议修复）",
+            "提示（可选）",
+        )
+
+    def test_japanese_fatal_before_warning_before_info(self, monkeypatch):
+        _apply_msgtext_overrides(monkeypatch, JAPANESE_TRANSLATIONS)
+        output = _render_to_string(MIXED_RESULTS, no_color=True)
+        _assert_group_order(
+            output,
+            "致命的問題（要修正）",
+            "警告（推奨修正）",
+            "情報（任意）",
+        )
+
+    def test_english_fatal_before_warning_before_info(self):
+        output = _render_to_string(MIXED_RESULTS, no_color=True)
+        _assert_group_order(
+            output,
+            MsgText.DoctorGroupFatal.value,
+            MsgText.DoctorGroupWarning.value,
+            MsgText.DoctorGroupInfo.value,
+        )
+
+    def test_partial_translation_order_still_stable(self, monkeypatch):
+        partial = {
+            "DoctorGroupFatal": "严重错误",
+            "DoctorGroupWarning": "警告（建议修复）",
+            "DoctorGroupInfo": "提示（可选）",
+        }
+        _apply_msgtext_overrides(monkeypatch, partial)
+        output = _render_to_string(MIXED_RESULTS, no_color=True)
+        _assert_group_order(
+            output,
+            "严重错误",
+            "警告（建议修复）",
+            "提示（可选）",
+        )
+
+    def test_sequential_language_switch_order_consistent(self, monkeypatch):
+        """Switch language mid-session: ordering must not drift."""
+        en_fatal = MsgText.DoctorGroupFatal.value
+        en_warn = MsgText.DoctorGroupWarning.value
+        en_info = MsgText.DoctorGroupInfo.value
+
+        output_en = _render_to_string(MIXED_RESULTS, no_color=True)
+        _assert_group_order(output_en, en_fatal, en_warn, en_info)
+
+        _apply_msgtext_overrides(monkeypatch, CHINESE_TRANSLATIONS)
+        output_cn = _render_to_string(MIXED_RESULTS, no_color=True)
+        _assert_group_order(
+            output_cn,
+            "致命问题（必须修复）",
+            "警告（建议修复）",
+            "提示（可选）",
+        )
+
+        monkeypatch.undo()
+        output_en2 = _render_to_string(MIXED_RESULTS, no_color=True)
+        _assert_group_order(output_en2, en_fatal, en_warn, en_info)
+
+        en_order = (
+            output_en.find(en_fatal),
+            output_en.find(en_warn),
+            output_en.find(en_info),
+        )
+        en2_order = (
+            output_en2.find(en_fatal),
+            output_en2.find(en_warn),
+            output_en2.find(en_info),
+        )
+        assert en_order == en2_order, (
+            f"Order changed after locale round-trip: "
+            f"{en_order} != {en2_order}"
+        )
+
+    def test_level_prefix_labels_consistent_across_locales(
+        self, monkeypatch
+    ):
+        """Severity level prefix (FATAL/WARNING/INFO) must map
+        to the same group regardless of locale."""
+        _apply_msgtext_overrides(monkeypatch, CHINESE_TRANSLATIONS)
+        output = _render_to_string(MIXED_RESULTS, no_color=True)
+
+        fatal_pos = output.find("致命问题（必须修复）")
+        warn_pos = output.find("警告（建议修复）")
+
+        error_msgs_near_fatal = [
+            r["message"] for r in MIXED_RESULTS if r["level"] == "error"
+        ]
+        for msg in error_msgs_near_fatal:
+            msg_pos = output.find(msg)
+            assert msg_pos != -1, f"{msg!r} not found in output"
+            assert fatal_pos < msg_pos, (
+                f"Error message {msg!r} should appear inside "
+                f"the Fatal group, but appears before it"
+            )
+
+        warn_msgs_near_warn = [
+            r["message"] for r in MIXED_RESULTS if r["level"] == "warning"
+        ]
+        for msg in warn_msgs_near_warn:
+            msg_pos = output.find(msg)
+            assert msg_pos != -1, f"{msg!r} not found in output"
+            assert warn_pos < msg_pos, (
+                f"Warning message {msg!r} should appear inside "
+                f"the Warning group, but appears before it"
+            )
+
+    def test_two_locales_produce_same_structural_order(self, monkeypatch):
+        """Structural positions of groups relative to each other
+        must be identical in Chinese and Japanese."""
+        _apply_msgtext_overrides(monkeypatch, CHINESE_TRANSLATIONS)
+        cn_output = _render_to_string(MIXED_RESULTS, no_color=True)
+        cn_fatal = cn_output.find("致命问题（必须修复）")
+        cn_warn = cn_output.find("警告（建议修复）")
+        cn_info = cn_output.find("提示（可选）")
+
+        monkeypatch.undo()
+
+        _apply_msgtext_overrides(monkeypatch, JAPANESE_TRANSLATIONS)
+        jp_output = _render_to_string(MIXED_RESULTS, no_color=True)
+        jp_fatal = jp_output.find("致命的問題（要修正）")
+        jp_warn = jp_output.find("警告（推奨修正）")
+        jp_info = jp_output.find("情報（任意）")
+
+        cn_rel = (
+            cn_fatal < cn_warn < cn_info,
+        )
+        jp_rel = (
+            jp_fatal < jp_warn < jp_info,
+        )
+        assert cn_rel == jp_rel, (
+            f"Relative group order differs between locales: "
+            f"CN={cn_rel}, JP={jp_rel}"
+        )
+
+    def test_only_fatal_and_warning_order_under_chinese(self, monkeypatch):
+        _apply_msgtext_overrides(monkeypatch, CHINESE_TRANSLATIONS)
+        results = [
+            {
+                "category": "Editor",
+                "level": "error",
+                "message": "err",
+                "suggestion": "",
+            },
+            {
+                "category": "Journal Path",
+                "level": "warning",
+                "message": "warn",
+                "suggestion": "",
+            },
+        ]
+        output = _render_to_string(results, no_color=True)
+        fatal_pos = output.find("致命问题（必须修复）")
+        warn_pos = output.find("警告（建议修复）")
+
+        assert fatal_pos != -1
+        assert warn_pos != -1
+        assert fatal_pos < warn_pos
+        assert "提示（可选）" not in output
