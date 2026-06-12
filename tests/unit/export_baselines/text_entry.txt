@@ -1,0 +1,2 @@
+[2023-06-20 14:45] Second entry with @tag1 and @tag2. *
+More content here.

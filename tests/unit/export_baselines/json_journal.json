@@ -1,0 +1,37 @@
+{
+  "tags": {
+    "@tag1": 2,
+    "@tag2": 1
+  },
+  "entries": [
+    {
+      "title": "Hello world.",
+      "body": "This is a test entry.",
+      "date": "2023-05-15",
+      "time": "09:30",
+      "tags": [],
+      "starred": false
+    },
+    {
+      "title": "Second entry with @tag1 and @tag2.",
+      "body": "More content here.",
+      "date": "2023-06-20",
+      "time": "14:45",
+      "tags": [
+        "@tag2",
+        "@tag1"
+      ],
+      "starred": true
+    },
+    {
+      "title": "Third entry.",
+      "body": "@tag1 appears again.",
+      "date": "2023-06-20",
+      "time": "18:00",
+      "tags": [
+        "@tag1"
+      ],
+      "starred": false
+    }
+  ]
+}
