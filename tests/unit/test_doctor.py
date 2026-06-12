@@ -7,6 +7,7 @@ import shutil
 from io import StringIO
 from unittest.mock import patch
 
+import pytest
 from rich.console import Console
 
 from jrnl.commands import _check_editor
@@ -458,3 +459,295 @@ class TestDoctorRunChecks:
         levels = {r["category"]: r["level"] for r in results}
         assert levels.get("Editor") == "error"
         assert levels.get("Template") == "error"
+
+
+CHINESE_TRANSLATIONS = {
+    "DoctorTitle": "jrnl 配置体检",
+    "DoctorSectionJournal": "日记路径",
+    "DoctorSectionEditor": "编辑器",
+    "DoctorSectionTemplate": "模板",
+    "DoctorGroupFatal": "致命问题（必须修复）",
+    "DoctorGroupWarning": "警告（建议修复）",
+    "DoctorGroupInfo": "提示（可选）",
+    "DoctorAllOk": "所有检查通过！您的配置状态良好。",
+    "DoctorCategoryLabel": "类别",
+    "DoctorIssueLabel": "问题",
+    "DoctorSuggestionLabel": "建议",
+    "DoctorJournalPathOK": "日记路径已存在：{path}",
+    "DoctorJournalPathNotFound": "未找到日记路径：{path}",
+    "DoctorJournalPathNotWritable": "日记路径不可写：{path}",
+    "DoctorJournalPathIsDir": "日记路径是一个目录：{path}",
+    "DoctorJournalPathSuggestion": (
+        "请检查配置文件中的 'journal' 路径，"
+        "并确保它指向一个有效的文件。"
+    ),
+    "DoctorEditorOK": "编辑器可用：{editor}",
+    "DoctorEditorNotSet": "未配置编辑器",
+    "DoctorEditorNotFound": "未找到编辑器：{editor}",
+    "DoctorEditorNotSetSuggestion": (
+        "请在配置文件中设置编辑器，"
+        "或者设置 VISUAL 或 EDITOR 环境变量。"
+    ),
+    "DoctorEditorNotFoundSuggestion": (
+        "请安装 '{editor}' 或更新您的配置"
+        "以使用其他编辑器。"
+    ),
+    "DoctorEncryptionOK": "加密依赖均可用",
+    "DoctorEncryptionCryptographyMissing": "未安装 'cryptography' 包。",
+    "DoctorEncryptionKeyringMissing": "未安装 'keyring' 包。",
+    "DoctorEncryptionKeyringNoBackend": (
+        "没有可用的 keyring 后端，密码将无法安全存储。"
+    ),
+    "DoctorEncryptionSuggestion": (
+        "请使用 'pip install cryptography keyring' "
+        "安装缺失的依赖。"
+    ),
+    "DoctorEncryptionKeyringSuggestion": (
+        "请为您的系统安装合适的 keyring 后端。"
+    ),
+    "DoctorTemplateOK": "模板文件已存在：{path}",
+    "DoctorTemplateNotSet": "未配置模板",
+    "DoctorTemplateNotFound": "未找到模板文件：{path}",
+    "DoctorTemplateNotReadable": "模板文件不可读：{path}",
+    "DoctorTemplateSuggestion": (
+        "请检查配置文件中的 'template' 路径，"
+        "如果不需要可以删除该配置。"
+    ),
+    "DoctorTemplateNotFoundSuggestion": (
+        "请在 {path} 创建模板文件，"
+        "或更新配置以指向已存在的文件。"
+    ),
+    "DoctorSummary": "汇总：{ok} 项通过，{warning} 项警告，{error} 项致命问题",
+}
+
+
+def _apply_msgtext_overrides(monkeypatch, overrides: dict[str, str]):
+    """Override MsgText enum member values for i18n testing."""
+    for name, value in overrides.items():
+        member = getattr(MsgText, name)
+        monkeypatch.setattr(member, "_value_", value)
+
+
+class TestDoctorI18nPrimaryLanguage:
+    """Primary (English) language: doctor output should be readable and complete."""
+
+    def test_default_english_render_has_all_sections(self):
+        results = _run_doctor_checks(
+            _make_config(
+                journal="/nonexistent_dir/sub/journal.txt",
+                editor="",
+                template="nonexistent.template",
+            )
+        )
+        output = _render_to_string(results, no_color=True)
+
+        assert MsgText.DoctorTitle.value in output
+        assert MsgText.DoctorGroupFatal.value in output
+        assert MsgText.DoctorGroupWarning.value in output
+        assert MsgText.DoctorGroupInfo.value in output
+        assert MsgText.DoctorCategoryLabel.value in output
+        assert MsgText.DoctorIssueLabel.value in output
+        summary = MsgText.DoctorSummary.value
+        assert "passed" in summary
+        assert "warning" in summary
+        assert "fatal" in summary
+
+    def test_default_english_has_non_empty_suggestions(self):
+        level, msg, suggestion = _check_editor("")
+        assert suggestion != ""
+        assert isinstance(suggestion, str)
+        assert len(suggestion.strip()) > 0
+
+        level, msg, suggestion = _check_editor("no_such_editor_xyz")
+        assert suggestion != ""
+
+    def test_default_english_format_placeholders_work(self):
+        fmt = MsgText.DoctorJournalPathNotFound.value
+        formatted = fmt.format(path="/foo/bar.txt")
+        assert "/foo/bar.txt" in formatted
+
+        fmt = MsgText.DoctorEditorNotFoundSuggestion.value
+        formatted = fmt.format(editor="vim")
+        assert "vim" in formatted
+
+
+class TestDoctorI18nNonDefaultLanguage:
+    """Non-default language: translated messages should appear in output."""
+
+    def test_chinese_translation_render(self, monkeypatch):
+        _apply_msgtext_overrides(monkeypatch, CHINESE_TRANSLATIONS)
+
+        results = _run_doctor_checks(
+            _make_config(
+                journal="/nonexistent_dir/sub/journal.txt",
+                editor="",
+                template="nonexistent.template",
+            )
+        )
+        output = _render_to_string(results, no_color=True)
+
+        assert "jrnl 配置体检" in output
+        assert "致命问题（必须修复）" in output
+        assert "警告（建议修复）" in output
+        assert "提示（可选）" in output
+        assert "类别" in output
+        assert "问题" in output
+        assert "建议" in output
+        assert "未配置编辑器" in output or "未找到编辑器" in output
+
+    def test_chinese_format_placeholders_preserved(self, monkeypatch):
+        _apply_msgtext_overrides(monkeypatch, CHINESE_TRANSLATIONS)
+
+        level, msg, suggestion = _check_journal_path(
+            "/nonexistent_xyz/test.txt"
+        )
+        assert "/nonexistent_xyz/test.txt" in msg
+
+        level, msg, suggestion = _check_editor("weird_editor_xyz")
+        assert "weird_editor_xyz" in msg
+
+    def test_non_default_language_render_output_stable(self, monkeypatch):
+        _apply_msgtext_overrides(monkeypatch, CHINESE_TRANSLATIONS)
+
+        results = [
+            {
+                "category": MsgText.DoctorSectionJournal.value,
+                "level": "error",
+                "message": MsgText.DoctorJournalPathNotFound.value.format(
+                    path="/a/b.txt"
+                ),
+                "suggestion": MsgText.DoctorJournalPathSuggestion.value,
+            },
+            {
+                "category": MsgText.DoctorSectionEditor.value,
+                "level": "warning",
+                "message": MsgText.DoctorEditorNotSet.value,
+                "suggestion": MsgText.DoctorEditorNotSetSuggestion.value,
+            },
+            {
+                "category": "Encryption",
+                "level": "ok",
+                "message": MsgText.DoctorEncryptionOK.value,
+                "suggestion": "",
+            },
+        ]
+        output = _render_to_string(results, no_color=True)
+
+        assert ANSI_ESCAPE_RE.search(output) is None
+        assert output.strip() != ""
+        assert "致命问题" in output
+        assert "警告" in output
+        assert "提示" in output
+
+
+class TestDoctorI18nMissingTranslation:
+    """Missing/partial translations: output must be readable and not crash."""
+
+    def test_partial_translation_still_outputs_english_fallback(self, monkeypatch):
+        partial = {
+            "DoctorTitle": "jrnl 配置体检",
+            "DoctorGroupFatal": "致命问题（必须修复）",
+        }
+        _apply_msgtext_overrides(monkeypatch, partial)
+
+        results = [
+            {
+                "category": MsgText.DoctorSectionJournal.value,
+                "level": "error",
+                "message": "Something broke",
+                "suggestion": "Fix it",
+            },
+        ]
+        output = _render_to_string(results, no_color=True)
+
+        assert "jrnl 配置体检" in output
+        assert "致命问题（必须修复）" in output
+        assert MsgText.DoctorCategoryLabel.value in output
+        assert "Something broke" in output
+
+    def test_empty_string_message_does_not_crash(self, monkeypatch):
+        overrides = {
+            "DoctorEditorNotSet": "",
+            "DoctorEditorNotSetSuggestion": "",
+        }
+        _apply_msgtext_overrides(monkeypatch, overrides)
+
+        try:
+            level, msg, suggestion = _check_editor("")
+        except Exception as exc:  # pragma: no cover
+            pytest.fail(
+                f"_check_editor crashed with empty translation: {exc}"
+            )
+
+        assert isinstance(msg, str)
+        assert isinstance(suggestion, str)
+
+    def test_format_placeholder_missing_from_translation_no_crash(
+        self, monkeypatch
+    ):
+        overrides = {
+            "DoctorJournalPathNotFound": "找不到日记路径（翻译漏了占位符）",
+        }
+        _apply_msgtext_overrides(monkeypatch, overrides)
+
+        level, msg, suggestion = _check_journal_path("/tmp/x/y/z.txt")
+        assert level in ("ok", "warning", "error")
+        assert isinstance(msg, str)
+
+    def test_all_messages_present_in_default(self):
+        """Every Doctor* message member must have a non-empty default value."""
+        doctor_members = [
+            m for m in MsgText if m.name.startswith("Doctor")
+        ]
+        assert len(doctor_members) >= 25, (
+            f"Expected at least 25 Doctor* message members, "
+            f"found {len(doctor_members)}"
+        )
+        for member in doctor_members:
+            value = member.value
+            assert isinstance(value, str), (
+                f"{member.name} value must be str, got {type(value).__name__}"
+            )
+            assert value.strip() != "", (
+                f"{member.name} default value must not be empty"
+            )
+
+    def test_format_messages_contain_expected_placeholders(self):
+        """Messages that use .format() must contain the expected placeholders."""
+        expectation = {
+            "DoctorJournalPathOK": ["{path}"],
+            "DoctorJournalPathNotFound": ["{path}"],
+            "DoctorJournalPathNotWritable": ["{path}"],
+            "DoctorJournalPathIsDir": ["{path}"],
+            "DoctorEditorOK": ["{editor}"],
+            "DoctorEditorNotFound": ["{editor}"],
+            "DoctorEditorNotFoundSuggestion": ["{editor}"],
+            "DoctorTemplateOK": ["{path}"],
+            "DoctorTemplateNotFound": ["{path}"],
+            "DoctorTemplateNotReadable": ["{path}"],
+            "DoctorTemplateNotFoundSuggestion": ["{path}"],
+            "DoctorSummary": ["{ok}", "{warning}", "{error}"],
+        }
+        for name, placeholders in expectation.items():
+            value = getattr(MsgText, name).value
+            for ph in placeholders:
+                assert ph in value, (
+                    f"MsgText.{name} is missing placeholder {ph!r}"
+                )
+
+    def test_render_with_missing_category_label_graceful(self, monkeypatch):
+        _apply_msgtext_overrides(
+            monkeypatch, {"DoctorCategoryLabel": "", "DoctorIssueLabel": ""}
+        )
+        results = [
+            {
+                "category": "Journal Path",
+                "level": "error",
+                "message": "some fatal issue",
+                "suggestion": "fix it please",
+            },
+        ]
+        output = _render_to_string(results, no_color=True)
+        assert isinstance(output, str)
+        assert "some fatal issue" in output
+        assert "fix it please" in output
