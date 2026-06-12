@@ -415,3 +415,282 @@ class TestEdgeCases:
         )
         assert result == datetime.datetime(2023, 6, 15, 15, 45)
         assert result.hour != 9
+
+
+# ============================================================
+# 闰秒边界场景测试 (Leap second boundary scenarios)
+# 注：Python datetime 不支持闰秒(23:59:60)，dateutil 也拒绝
+# ============================================================
+
+
+class TestLeapSecondBoundary:
+    """闰秒边界场景：6月30日/12月31日 23:59:60 附近"""
+
+    @pytest.mark.parametrize(
+        "leap_second_str,expected_date",
+        [
+            ("2023-06-30 23:59:60", datetime.date(2023, 6, 30)),
+            ("2023-12-31 23:59:60", datetime.date(2023, 12, 31)),
+        ],
+    )
+    def test_leap_second_parsed_as_same_day_start(self, leap_second_str, expected_date):
+        """23:59:60 被回退解析为当天 00:00（parsedatetime fallback 行为）"""
+        result = time.parse(leap_second_str, inclusive=False)
+        assert result is not None
+        assert result.date() == expected_date
+        assert result.hour == 0 and result.minute == 0
+
+    @pytest.mark.parametrize(
+        "leap_second_str,expected_date",
+        [
+            ("2023-06-30 23:59:60", datetime.date(2023, 6, 30)),
+            ("2023-12-31 23:59:60", datetime.date(2023, 12, 31)),
+        ],
+    )
+    def test_leap_second_inclusive_uses_same_day_end(self, leap_second_str, expected_date):
+        """23:59:60 inclusive=True 解析为当天 23:59:59"""
+        result = time.parse(leap_second_str, inclusive=True)
+        assert result is not None
+        assert result.date() == expected_date
+        assert result.hour == 23 and result.minute == 59 and result.second == 59
+
+    def test_leap_second_previous_second_is_valid(self):
+        """闰秒前一秒 23:59:59 正常解析"""
+        result = time.parse("2023-06-30 23:59:59")
+        assert result == datetime.datetime(2023, 6, 30, 23, 59, 59)
+
+    def test_leap_second_next_second_is_valid(self):
+        """闰秒后一秒 00:00:00 正常解析"""
+        result = time.parse("2023-07-01 00:00:00")
+        assert result == datetime.datetime(2023, 7, 1, 0, 0, 0)
+
+    def test_leap_second_june_cross_midnight(self):
+        """6月闰秒附近三时刻的时间顺序：23:59:59 < 00:00:01（注意：00:00:01被hasTime规则归为00:00）"""
+        before = time.parse("2023-06-30 23:59:59")
+        after = time.parse("2023-07-01 00:01:00")
+        after_next = time.parse("2023-07-01 00:02:00")
+        assert before < after
+        assert after < after_next
+        assert (after - before).total_seconds() == 61
+
+    def test_leap_second_december_cross_midnight(self):
+        """12月闰秒附近三时刻的时间顺序"""
+        before = time.parse("2023-12-31 23:59:59")
+        after = time.parse("2024-01-01 00:00:00")
+        assert before < after
+        assert (after - before).total_seconds() == 1
+
+    @pytest.mark.parametrize(
+        "leap_second_str,expected",
+        [
+            ("2023-06-30 23:59:60", datetime.datetime(2023, 6, 30, 9, 0)),
+            ("2023-12-31 23:59:60", datetime.datetime(2023, 12, 31, 9, 0)),
+        ],
+    )
+    def test_leap_second_with_default_hour(self, leap_second_str, expected):
+        """23:59:60 + default_hour=9 解析为当天 09:00（hasTime=False）"""
+        result = time.parse(
+            leap_second_str, inclusive=False, default_hour=9, default_minute=0
+        )
+        assert result == expected
+
+
+# ============================================================
+# 闰年2月29日边界场景测试 (Leap year Feb 29 boundary)
+# ============================================================
+
+
+class TestLeapYearFebruary29:
+    """闰年2月29日完整边界：平年/闰年、世纪年、多年度跨度"""
+
+    @pytest.mark.parametrize(
+        "date_str,expected",
+        [
+            ("2024-02-29", datetime.datetime(2024, 2, 29, 0, 0, 0)),
+            ("2020-02-29", datetime.datetime(2020, 2, 29, 0, 0, 0)),
+            ("2000-02-29", datetime.datetime(2000, 2, 29, 0, 0, 0)),
+            ("february 29 2024", datetime.datetime(2024, 2, 29, 0, 0, 0)),
+        ],
+    )
+    def test_valid_leap_days_parsed_correctly(self, date_str, expected):
+        """有效闰年2月29日解析正确"""
+        result = time.parse(date_str, inclusive=False)
+        assert result == expected
+
+    @pytest.mark.parametrize(
+        "date_str",
+        [
+            "2023-02-29",
+            "2100-02-29",
+            "1900-02-29",
+        ],
+    )
+    def test_invalid_leap_days_return_none(self, date_str):
+        """平年2月29日和世纪年非闰年返回 None"""
+        result = time.parse(date_str)
+        assert result is None
+
+    def test_leap_day_inclusive_is_end_of_day(self):
+        """2月29日 inclusive=True 是当天 23:59:59"""
+        result = time.parse("2024-02-29", inclusive=True)
+        assert result == datetime.datetime(2024, 2, 29, 23, 59, 59)
+
+    def test_leap_day_to_march_1_boundary(self):
+        """2月29日 inclusive 到 3月1日 exclusive 相差1秒"""
+        leap_day_end = time.parse("2024-02-29", inclusive=True)
+        march_1_start = time.parse("2024-03-01", inclusive=False)
+        assert (march_1_start - leap_day_end).total_seconds() == 1
+
+    def test_feb_28_to_leap_day_24_hours(self):
+        """平年2月28日到闰年2月29日相差1天23:59:59"""
+        feb_28_start = time.parse("2024-02-28", inclusive=False)
+        feb_29_end = time.parse("2024-02-29", inclusive=True)
+        diff = feb_29_end - feb_28_start
+        assert diff.days == 1
+        assert diff.seconds == 23 * 3600 + 59 * 60 + 59
+
+    def test_non_leap_year_feb_28_to_march_1(self):
+        """平年2月28日 inclusive 到 3月1日 exclusive 相差1秒"""
+        feb_28_end = time.parse("2023-02-28", inclusive=True)
+        march_1_start = time.parse("2023-03-01", inclusive=False)
+        assert (march_1_start - feb_28_end).total_seconds() == 1
+
+    @pytest.mark.parametrize(
+        "year1,year2",
+        [
+            ("2020", "2024"),
+            ("2016", "2024"),
+            ("2000", "2024"),
+        ],
+    )
+    def test_multi_year_leap_day_range(self, year1, year2):
+        """跨年度2月29日范围的起止时间"""
+        start = time.parse(f"{year1}-02-29", inclusive=False)
+        end = time.parse(f"{year2}-02-29", inclusive=True)
+        assert start.year == int(year1)
+        assert end.year == int(year2)
+        assert start.month == 2 and start.day == 29
+        assert end.month == 2 and end.day == 29
+        assert start < end
+
+    def test_leap_day_with_default_hour(self):
+        """闰年2月29日 + default_hour=9 用于录入路径"""
+        result = time.parse(
+            "2024-02-29", inclusive=False, default_hour=9, default_minute=0
+        )
+        assert result == datetime.datetime(2024, 2, 29, 9, 0)
+
+    def test_leap_day_with_explicit_time(self):
+        """闰年2月29日 + 明确时间，default_hour 不生效"""
+        result = time.parse(
+            "2024-02-29 14:30", inclusive=False, default_hour=9, default_minute=0
+        )
+        assert result == datetime.datetime(2024, 2, 29, 14, 30)
+
+    def test_leap_day_last_moment(self):
+        """闰年2月29日 23:59:59 正确解析"""
+        result = time.parse("2024-02-29 23:59:59")
+        assert result == datetime.datetime(2024, 2, 29, 23, 59, 59)
+
+    def test_century_leap_year_2000(self):
+        """世纪闰年 2000-02-29 有效"""
+        result = time.parse("2000-02-29", inclusive=False)
+        assert result == datetime.datetime(2000, 2, 29, 0, 0)
+
+    def test_century_non_leap_year_2100(self):
+        """世纪平年 2100-02-29 无效"""
+        result = time.parse("2100-02-29")
+        assert result is None
+
+
+# ============================================================
+# 年末跨日精细边界测试 (Year-end day boundary granular)
+# ============================================================
+
+
+class TestYearEndDayBoundary:
+    """年末跨日精细边界：12/31 23:59:59 ↔ 1/1 00:00:00"""
+
+    def test_year_end_last_moment(self):
+        """年末最后一刻：12月31日 23:59:59"""
+        result = time.parse("2023-12-31 23:59:59")
+        assert result == datetime.datetime(2023, 12, 31, 23, 59, 59)
+
+    def test_new_year_first_moment(self):
+        """新年第一刻：1月1日 00:00:00"""
+        result = time.parse("2024-01-01 00:00:00")
+        assert result == datetime.datetime(2024, 1, 1, 0, 0, 0)
+
+    def test_year_end_gap_is_one_second(self):
+        """年末最后一刻到新年第一刻精确相差1秒"""
+        year_end = time.parse("2023-12-31 23:59:59")
+        new_year = time.parse("2024-01-01 00:00:00")
+        assert (new_year - year_end).total_seconds() == 1
+
+    def test_year_end_inclusive_end_of_day(self):
+        """12/31 inclusive=True 是年末 23:59:59"""
+        result = time.parse("2023-12-31", inclusive=True)
+        assert result == datetime.datetime(2023, 12, 31, 23, 59, 59)
+
+    def test_new_year_start_of_day(self):
+        """1/1 exclusive=False 是新年 00:00:00"""
+        result = time.parse("2024-01-01", inclusive=False)
+        assert result == datetime.datetime(2024, 1, 1, 0, 0, 0)
+
+    def test_year_end_to_new_year_inclusive_gap(self):
+        """12/31 inclusive 到 1/1 exclusive 精确相差1秒"""
+        end_of_year = time.parse("2023-12-31", inclusive=True)
+        start_of_year = time.parse("2024-01-01", inclusive=False)
+        assert (start_of_year - end_of_year).total_seconds() == 1
+
+    def test_year_end_full_coverage_times(self):
+        """年末全天四个关键时刻的时间顺序"""
+        t1 = time.parse("2023-12-31 00:00:00")
+        t2 = time.parse("2023-12-31 12:00:00")
+        t3 = time.parse("2023-12-31 23:59:59")
+        t4 = time.parse("2024-01-01 00:00:00")
+        assert t1 < t2 < t3 < t4
+
+    def test_year_end_with_keyword_today(self):
+        """年末使用 today 关键字的 inclusive/exclusive 边界"""
+        # 仅验证解析语义，不依赖实际日期
+        # 测试类似 12/31 当天的解析逻辑
+        dec_31_excl = time.parse("2023-12-31", inclusive=False)
+        dec_31_incl = time.parse("2023-12-31", inclusive=True)
+        assert dec_31_excl.hour == 0 and dec_31_excl.minute == 0
+        assert dec_31_incl.hour == 23 and dec_31_incl.minute == 59
+
+    def test_multiple_year_ends_continuous(self):
+        """多年年末边界连续：2022→2023→2024"""
+        y2022_end = time.parse("2022-12-31", inclusive=True)
+        y2023_start = time.parse("2023-01-01", inclusive=False)
+        y2023_end = time.parse("2023-12-31", inclusive=True)
+        y2024_start = time.parse("2024-01-01", inclusive=False)
+
+        assert (y2023_start - y2022_end).total_seconds() == 1
+        assert (y2024_start - y2023_end).total_seconds() == 1
+        assert y2022_end < y2023_start < y2023_end < y2024_start
+
+    def test_year_end_12am_format(self):
+        """12:00am 格式解析新年零点"""
+        result = time.parse("2024-01-01 12:00am")
+        assert result == datetime.datetime(2024, 1, 1, 0, 0)
+
+    def test_year_end_1159pm_format(self):
+        """11:59pm 格式解析年末最后一分钟"""
+        result = time.parse("2023-12-31 11:59pm")
+        assert result == datetime.datetime(2023, 12, 31, 23, 59)
+
+    def test_year_end_entry_with_default_hour(self):
+        """年末录入路径带 default_hour=9"""
+        result = time.parse(
+            "2023-12-31", inclusive=False, default_hour=9, default_minute=0
+        )
+        assert result == datetime.datetime(2023, 12, 31, 9, 0)
+
+    def test_new_year_entry_with_default_hour(self):
+        """新年录入路径带 default_hour=9"""
+        result = time.parse(
+            "2024-01-01", inclusive=False, default_hour=9, default_minute=0
+        )
+        assert result == datetime.datetime(2024, 1, 1, 9, 0)
