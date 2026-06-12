@@ -194,11 +194,16 @@ def postconfig_doctor(args: argparse.Namespace, config: dict, **_) -> int:
     Results are grouped by severity: fatal issues, warnings, and info.
     """
     from rich.console import Console
-    from rich.panel import Panel
-    from rich.text import Text
 
     console = Console()
+    results = _run_doctor_checks(config)
+    _render_doctor_results(console, results)
+    fatal_count = sum(1 for r in results if r["level"] == "error")
+    return 0 if fatal_count == 0 else 1
 
+
+def _run_doctor_checks(config: dict) -> list[dict]:
+    """Run all doctor checks and return results as a list of dicts."""
     results = []
 
     journal_path = absolute_path(config["journal"])
@@ -243,6 +248,14 @@ def postconfig_doctor(args: argparse.Namespace, config: dict, **_) -> int:
             "suggestion": template_suggestion,
         }
     )
+
+    return results
+
+
+def _render_doctor_results(console, results: list[dict]) -> None:
+    """Render doctor results to a Rich Console, grouped by severity."""
+    from rich.panel import Panel
+    from rich.text import Text
 
     fatal_issues = [r for r in results if r["level"] == "error"]
     warnings = [r for r in results if r["level"] == "warning"]
@@ -314,8 +327,6 @@ def postconfig_doctor(args: argparse.Namespace, config: dict, **_) -> int:
     console.print("=" * 60)
     console.print(Text(summary, style=summary_style))
     console.print()
-
-    return 0 if error_count == 0 else 1
 
 
 def _print_severity_group(
