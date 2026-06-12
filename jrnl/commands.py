@@ -191,119 +191,177 @@ def postconfig_doctor(args: argparse.Namespace, config: dict, **_) -> int:
     """
     Perform a health check on the jrnl configuration.
     Checks journal path, editor, encryption dependencies, and template configuration.
+    Results are grouped by severity: fatal issues, warnings, and info.
     """
     from rich.console import Console
-    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
 
     console = Console()
 
-    ok_count = 0
-    warning_count = 0
-    error_count = 0
-
-    console.print(f"\n[bold cyan]{MsgText.DoctorTitle.value}[/bold cyan]\n")
-
-    # Check journal path
-    table = Table(show_header=False, box=None, padding=(0, 1))
-    console.print(f"[bold]{MsgText.DoctorSectionJournal.value}[/bold]")
+    results = []
 
     journal_path = absolute_path(config["journal"])
     path_ok, path_msg, path_suggestion = _check_journal_path(journal_path)
-
-    if path_ok == "ok":
-        ok_count += 1
-        status = f"[green]{MsgText.DoctorOK.value}[/green]"
-    elif path_ok == "warning":
-        warning_count += 1
-        status = f"[yellow]{MsgText.DoctorWarning.value}[/yellow]"
-    else:
-        error_count += 1
-        status = f"[red]{MsgText.DoctorError.value}[/red]"
-
-    table.add_row(status, path_msg)
-    if path_suggestion:
-        table.add_row("", f"[dim]{path_suggestion}[/dim]")
-    console.print(table)
-
-    # Check editor
-    table = Table(show_header=False, box=None, padding=(0, 1))
-    console.print(f"\n[bold]{MsgText.DoctorSectionEditor.value}[/bold]")
+    results.append(
+        {
+            "category": MsgText.DoctorSectionJournal.value,
+            "level": path_ok,
+            "message": path_msg,
+            "suggestion": path_suggestion,
+        }
+    )
 
     editor = config.get("editor", "")
     editor_ok, editor_msg, editor_suggestion = _check_editor(editor)
-
-    if editor_ok == "ok":
-        ok_count += 1
-        status = f"[green]{MsgText.DoctorOK.value}[/green]"
-    elif editor_ok == "warning":
-        warning_count += 1
-        status = f"[yellow]{MsgText.DoctorWarning.value}[/yellow]"
-    else:
-        error_count += 1
-        status = f"[red]{MsgText.DoctorError.value}[/red]"
-
-    table.add_row(status, editor_msg)
-    if editor_suggestion:
-        table.add_row("", f"[dim]{editor_suggestion}[/dim]")
-    console.print(table)
-
-    # Check encryption dependencies
-    table = Table(show_header=False, box=None, padding=(0, 1))
-    console.print(f"\n[bold]{MsgText.DoctorSectionEncryption.value}[/bold]")
+    results.append(
+        {
+            "category": MsgText.DoctorSectionEditor.value,
+            "level": editor_ok,
+            "message": editor_msg,
+            "suggestion": editor_suggestion,
+        }
+    )
 
     encrypt_ok, encrypt_msg, encrypt_suggestion = _check_encryption_dependencies()
-
-    if encrypt_ok == "ok":
-        ok_count += 1
-        status = f"[green]{MsgText.DoctorOK.value}[/green]"
-    elif encrypt_ok == "warning":
-        warning_count += 1
-        status = f"[yellow]{MsgText.DoctorWarning.value}[/yellow]"
-    else:
-        error_count += 1
-        status = f"[red]{MsgText.DoctorError.value}[/red]"
-
-    table.add_row(status, encrypt_msg)
-    if encrypt_suggestion:
-        table.add_row("", f"[dim]{encrypt_suggestion}[/dim]")
-    console.print(table)
-
-    # Check template
-    table = Table(show_header=False, box=None, padding=(0, 1))
-    console.print(f"\n[bold]{MsgText.DoctorSectionTemplate.value}[/bold]")
+    results.append(
+        {
+            "category": "Encryption",
+            "level": encrypt_ok,
+            "message": encrypt_msg,
+            "suggestion": encrypt_suggestion,
+        }
+    )
 
     template = config.get("template", False)
     template_ok, template_msg, template_suggestion = _check_template(template)
+    results.append(
+        {
+            "category": MsgText.DoctorSectionTemplate.value,
+            "level": template_ok,
+            "message": template_msg,
+            "suggestion": template_suggestion,
+        }
+    )
 
-    if template_ok == "ok":
-        ok_count += 1
-        status = f"[green]{MsgText.DoctorOK.value}[/green]"
-    elif template_ok == "warning":
-        warning_count += 1
-        status = f"[yellow]{MsgText.DoctorWarning.value}[/yellow]"
-    else:
-        error_count += 1
-        status = f"[red]{MsgText.DoctorError.value}[/red]"
+    fatal_issues = [r for r in results if r["level"] == "error"]
+    warnings = [r for r in results if r["level"] == "warning"]
+    info_items = [r for r in results if r["level"] == "ok"]
 
-    table.add_row(status, template_msg)
-    if template_suggestion:
-        table.add_row("", f"[dim]{template_suggestion}[/dim]")
-    console.print(table)
+    ok_count = len(info_items)
+    warning_count = len(warnings)
+    error_count = len(fatal_issues)
 
-    # Summary
-    console.print("\n" + "=" * 50)
+    console.print()
+    console.print(
+        Panel.fit(
+            Text(MsgText.DoctorTitle.value, style="bold cyan", justify="center"),
+            border_style="cyan",
+        )
+    )
+    console.print()
+
+    has_issues = fatal_issues or warnings
+
+    if fatal_issues:
+        _print_severity_group(
+            console,
+            MsgText.DoctorGroupFatal.value,
+            "bold red",
+            "red",
+            fatal_issues,
+        )
+
+    if warnings:
+        _print_severity_group(
+            console,
+            MsgText.DoctorGroupWarning.value,
+            "bold yellow",
+            "yellow",
+            warnings,
+        )
+
+    if has_issues and info_items:
+        _print_severity_group(
+            console,
+            MsgText.DoctorGroupInfo.value,
+            "bold green",
+            "green",
+            info_items,
+        )
+
+    if not has_issues:
+        console.print(
+            Panel.fit(
+                Text(MsgText.DoctorAllOk.value, style="bold green"),
+                border_style="green",
+                padding=(1, 2),
+            )
+        )
+        console.print()
+
     summary = MsgText.DoctorSummary.value.format(
         ok=ok_count, warning=warning_count, error=error_count
     )
+
     if error_count > 0:
-        console.print(f"[bold red]{summary}[/bold red]")
+        summary_style = "bold red"
     elif warning_count > 0:
-        console.print(f"[bold yellow]{summary}[/bold yellow]")
+        summary_style = "bold yellow"
     else:
-        console.print(f"[bold green]{summary}[/bold green]")
+        summary_style = "bold green"
+
+    console.print("=" * 60)
+    console.print(Text(summary, style=summary_style))
     console.print()
 
     return 0 if error_count == 0 else 1
+
+
+def _print_severity_group(
+    console,
+    title: str,
+    title_style: str,
+    border_style: str,
+    items: list[dict],
+) -> None:
+    """Print a group of issues with the same severity level."""
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    table = Table(
+        show_header=True,
+        header_style="bold",
+        box=None,
+        padding=(0, 2),
+        expand=True,
+    )
+    table.add_column(MsgText.DoctorCategoryLabel.value, style="dim", width=16)
+    table.add_column(MsgText.DoctorIssueLabel.value, ratio=1)
+
+    for item in items:
+        category = Text(item["category"], style="bold")
+        message = Text(item["message"])
+        if item["suggestion"]:
+            message.append("\n")
+            message.append(
+                Text(
+                    f"{MsgText.DoctorSuggestionLabel.value}: {item['suggestion']}",
+                    style="dim italic",
+                )
+            )
+        table.add_row(category, message)
+
+    panel = Panel(
+        table,
+        title=f"[{title_style}]{title} ({len(items)})[/{title_style}]",
+        border_style=border_style,
+        title_align="left",
+        padding=(0, 1),
+    )
+    console.print(panel)
+    console.print()
 
 
 def _check_journal_path(path: str) -> tuple[str, str, str]:

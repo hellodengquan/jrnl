@@ -299,23 +299,33 @@ class MsgText(Enum):
     DoctorOK = "[OK]"
     DoctorWarning = "[WARNING]"
     DoctorError = "[ERROR]"
+    DoctorLevelFatal = "FATAL"
+    DoctorLevelWarning = "WARNING"
+    DoctorLevelInfo = "INFO"
+    DoctorGroupFatal = "Fatal Issues (Must Fix)"
+    DoctorGroupWarning = "Warnings (Should Fix)"
+    DoctorGroupInfo = "Info (Optional)"
+    DoctorGroupAllOk = "All Checks Passed"
+    DoctorCategoryLabel = "Category"
+    DoctorIssueLabel = "Issue"
+    DoctorSuggestionLabel = "Suggestion"
     DoctorJournalPathOK = "Journal path exists: {path}"
     DoctorJournalPathNotFound = "Journal path not found: {path}"
     DoctorJournalPathNotWritable = "Journal path is not writable: {path}"
     DoctorJournalPathIsDir = "Journal path is a directory: {path}"
     DoctorJournalPathSuggestion = (
-        "Suggestion: Check the 'journal' path in your config file "
+        "Check the 'journal' path in your config file "
         "and ensure it points to a valid file."
     )
     DoctorEditorOK = "Editor is available: {editor}"
     DoctorEditorNotSet = "No editor configured"
     DoctorEditorNotFound = "Editor not found: {editor}"
     DoctorEditorNotSetSuggestion = (
-        "Suggestion: Set an editor in your config file "
+        "Set an editor in your config file "
         "or set the VISUAL or EDITOR environment variable."
     )
     DoctorEditorNotFoundSuggestion = (
-        "Suggestion: Install '{editor}' or update your config "
+        "Install '{editor}' or update your config "
         "to use a different editor."
     )
     DoctorEncryptionOK = "Encryption dependencies are available"
@@ -325,22 +335,25 @@ class MsgText(Enum):
         "No keyring backend available. Passwords will not be stored securely."
     )
     DoctorEncryptionSuggestion = (
-        "Suggestion: Install missing dependencies using "
+        "Install missing dependencies using "
         "'pip install cryptography keyring'."
     )
     DoctorEncryptionKeyringSuggestion = (
-        "Suggestion: Install a keyring backend appropriate for your system."
+        "Install a keyring backend appropriate for your system."
     )
     DoctorTemplateOK = "Template file exists: {path}"
     DoctorTemplateNotSet = "No template configured"
     DoctorTemplateNotFound = "Template file not found: {path}"
     DoctorTemplateNotReadable = "Template file is not readable: {path}"
     DoctorTemplateSuggestion = (
-        "Suggestion: Check the 'template' path in your config file "
+        "Check the 'template' path in your config file "
         "or remove it if not needed."
     )
     DoctorTemplateNotFoundSuggestion = (
-        "Suggestion: Create the template file at {path} "
+        "Create the template file at {path} "
         "or update the config to point to an existing file."
     )
-    DoctorSummary = "Summary: {ok} OK, {warning} warning(s), {error} error(s)"
+    DoctorSummary = "Summary: {ok} passed, {warning} warning(s), {error} fatal issue(s)"
+    DoctorNoFatalIssues = "No fatal issues found. Great job!"
+    DoctorNoWarnings = "No warnings found."
+    DoctorAllOk = "All checks passed! Your configuration is healthy."
