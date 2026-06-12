@@ -9,6 +9,8 @@ from jrnl.plugins.fancy_exporter import FancyExporter
 from jrnl.plugins.jrnl_importer import JRNLImporter
 from jrnl.plugins.json_exporter import JSONExporter
 from jrnl.plugins.markdown_exporter import MarkdownExporter
+from jrnl.plugins.pretty_exporter import PrettyExporter
+from jrnl.plugins.pretty_exporter import ShortExporter
 from jrnl.plugins.tag_exporter import TagExporter
 from jrnl.plugins.text_exporter import TextExporter
 from jrnl.plugins.xml_exporter import XMLExporter
@@ -20,6 +22,8 @@ __exporters = [
     FancyExporter,
     JSONExporter,
     MarkdownExporter,
+    PrettyExporter,
+    ShortExporter,
     TagExporter,
     TextExporter,
     XMLExporter,
@@ -28,8 +32,6 @@ __exporters = [
 __importers = [JRNLImporter]
 
 __exporter_types = {name: plugin for plugin in __exporters for name in plugin.names}
-__exporter_types["pretty"] = None
-__exporter_types["short"] = None
 __importer_types = {name: plugin for plugin in __importers for name in plugin.names}
 
 EXPORT_FORMATS = sorted(__exporter_types.keys())

@@ -392,20 +392,29 @@ def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> 
     # Get export format from config file if not provided at the command line
     args.export = args.export or kwargs["config"].get("display_format")
 
+    # Determine display format and whether to use filename parameter
     if args.tags:
-        print(plugins.get_exporter("tags").export(journal))
-
+        format_name = "tags"
+        use_output_file = False
     elif args.short or args.export == "short":
-        print(journal.pprint(short=True))
-
+        format_name = "short"
+        use_output_file = False
     elif args.export == "pretty":
-        print(journal.pprint())
-
+        format_name = "pretty"
+        use_output_file = False
     elif args.export:
-        exporter = plugins.get_exporter(args.export)
+        format_name = args.export
+        use_output_file = True
+    else:
+        format_name = "pretty"
+        use_output_file = False
+
+    exporter = plugins.get_exporter(format_name)
+
+    if use_output_file:
         print(exporter.export(journal, args.filename))
     else:
-        print(journal.pprint())
+        print(exporter.export(journal))
 
 
 def _has_search_args(args: "Namespace") -> bool:
