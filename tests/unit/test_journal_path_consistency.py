@@ -1062,3 +1062,624 @@ class TestCrossPlatformPathConsistency:
         assert str(tmp_path) in posix_result
         assert str(tmp_path) in win_result
 
+
+class TestUNCPathExpansion:
+    def test_unc_path_preserved_after_expand(self):
+        unc = "\\\\server\\share\\journals\\default.journal"
+        with patch("jrnl.path.os.path.expanduser") as mock_expanduser:
+            mock_expanduser.side_effect = lambda p: p
+            result = expand_journal_path(unc)
+        assert result == unc
+        assert result.startswith("\\\\")
+
+    def test_unc_path_with_env_var(self, monkeypatch):
+        monkeypatch.setenv("JRNL_SHARE", "\\\\server\\share")
+        with patch("jrnl.path.os.path.expanduser") as mock_expanduser:
+            mock_expanduser.side_effect = lambda p: p
+            result = expand_journal_path("$JRNL_SHARE\\journals\\default.journal")
+        assert result == "\\\\server\\share\\journals\\default.journal"
+
+    def test_unc_path_not_tilde_expanded(self):
+        unc = "\\\\server\\share\\~user\\journal.txt"
+        with patch("jrnl.path.os.path.expanduser") as mock_expanduser:
+            mock_expanduser.side_effect = lambda p: p
+            result = expand_journal_path(unc)
+        assert "~user" in result
+        assert result == "\\\\server\\share\\~user\\journal.txt"
+
+    def test_unc_path_exists_check(self):
+        unc = "\\\\server\\share\\journal.txt"
+        with patch("jrnl.path.os.path.exists", return_value=True) as mock_exists:
+            result = journal_path_exists(unc)
+        assert result is True
+        mock_exists.assert_called_with(unc)
+
+    def test_unc_path_not_exists_check(self):
+        unc = "\\\\server\\share\\missing.txt"
+        with patch("jrnl.path.os.path.exists", return_value=False):
+            result = journal_path_exists(unc)
+        assert result is False
+
+    def test_unc_path_directory_handling(self):
+        import ntpath
+
+        unc = "\\\\server\\share\\subdir\\journal.txt"
+        with patch("jrnl.path.os.path.dirname", side_effect=ntpath.dirname):
+            with patch("jrnl.path.os.path.isdir", return_value=False):
+                with patch("jrnl.path.os.makedirs"):
+                    with patch("jrnl.path.print_msg") as mock_print:
+                        result = ensure_journal_directory(unc)
+        assert result is True
+        mock_print.assert_called_once()
+        msg = mock_print.call_args[0][0]
+        assert msg.text == MsgText.DirectoryCreated
+        assert msg.style == MsgStyle.NORMAL
+
+
+class TestDriveLetterCaseSensitivity:
+    def test_uppercase_drive_letter_preserved(self):
+        with patch("jrnl.path.os.path.expanduser") as mock_expanduser:
+            mock_expanduser.side_effect = lambda p: p
+            result = expand_journal_path("C:\\Journals\\default.journal")
+        assert result == "C:\\Journals\\default.journal"
+
+    def test_lowercase_drive_letter_preserved(self):
+        with patch("jrnl.path.os.path.expanduser") as mock_expanduser:
+            mock_expanduser.side_effect = lambda p: p
+            result = expand_journal_path("c:\\Journals\\default.journal")
+        assert result == "c:\\Journals\\default.journal"
+
+    def test_mixed_case_drive_letter_preserved(self):
+        with patch("jrnl.path.os.path.expanduser") as mock_expanduser:
+            mock_expanduser.side_effect = lambda p: p
+            upper = expand_journal_path("C:\\Journals\\default.journal")
+            lower = expand_journal_path("c:\\Journals\\default.journal")
+        if os.name == "nt":
+            assert upper == lower
+        else:
+            assert upper != lower
+
+    def test_drive_letter_env_var_expansion(self, monkeypatch):
+        monkeypatch.setenv("JRNL_DRIVE", "C:")
+        with patch("jrnl.path.os.path.expanduser") as mock_expanduser:
+            mock_expanduser.side_effect = lambda p: p
+            result = expand_journal_path("$JRNL_DRIVE\\Journals\\default.journal")
+        assert result == "C:\\Journals\\default.journal"
+
+    def test_drive_letter_exists_check_windows_semantics(self):
+        upper_path = "C:\\Journals\\default.journal"
+        lower_path = "c:\\Journals\\default.journal"
+        with patch("jrnl.path.os.path.exists", return_value=True) as mock_exists:
+            upper_result = journal_path_exists(upper_path)
+            lower_result = journal_path_exists(lower_path)
+        if os.name == "nt":
+            assert upper_result == lower_result
+        else:
+            assert upper_result is True
+            assert lower_result is True
+
+    def test_drive_letter_directory_message_same_style(self):
+        import ntpath
+
+        upper_path = "C:\\Journals\\subdir\\journal.txt"
+        lower_path = "c:\\Journals\\subdir\\journal.txt"
+        with patch("jrnl.path.os.path.dirname", side_effect=ntpath.dirname):
+            with patch("jrnl.path.os.path.isdir", return_value=False):
+                with patch("jrnl.path.os.makedirs"):
+                    with patch("jrnl.path.print_msg") as mock_print:
+                        ensure_journal_directory(upper_path)
+        upper_msg = mock_print.call_args[0][0]
+
+        with patch("jrnl.path.os.path.dirname", side_effect=ntpath.dirname):
+            with patch("jrnl.path.os.path.isdir", return_value=False):
+                with patch("jrnl.path.os.makedirs"):
+                    with patch("jrnl.path.print_msg") as mock_print:
+                        ensure_journal_directory(lower_path)
+        lower_msg = mock_print.call_args[0][0]
+
+        assert upper_msg.text == lower_msg.text
+        assert upper_msg.style == lower_msg.style
+
+
+class TestUNCPlainJournalLoading:
+    def test_unc_plain_journal_expand_result(self):
+        unc = "\\\\server\\share\\journals\\default.journal"
+        config = _make_config(unc, encrypt=False)
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.path.journal_path_exists", return_value=True):
+                with patch("jrnl.path.os.path.exists", return_value=True):
+                    with patch.object(Journal, "_load", return_value=b""):
+                        with patch.object(Journal, "_decrypt", return_value=""):
+                            j = open_journal("default", config)
+        assert j.config["journal"] == unc
+
+    def test_unc_plain_journal_missing_reports_consistent(self, tmp_path):
+        real_path = str(tmp_path / "unc_simulated_journal.txt")
+        unc = "\\\\server\\share\\missing\\journal.txt"
+        config = _make_config(unc, encrypt=False)
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.journals.Journal.journal_path_exists", return_value=False):
+                with patch("jrnl.journals.Journal.ensure_journal_directory", return_value=True):
+                    with patch("jrnl.journals.Journal.expand_journal_path", return_value=real_path):
+                        with patch("jrnl.journals.Journal.create_journal_file") as mock_create:
+                            with patch("jrnl.path.print_msg") as mock_print:
+                                with patch.object(Journal, "write"):
+                                    with patch.object(Journal, "_load", return_value=b""):
+                                        with patch.object(Journal, "_decrypt", return_value=""):
+                                            mock_create.side_effect = lambda p, n: create_journal_file(real_path, n)
+                                            j = open_journal("default", config)
+        created_msgs = [
+            c for c in mock_print.call_args_list
+            if c[0][0].text == MsgText.JournalCreated
+        ]
+        assert len(created_msgs) == 1
+        assert created_msgs[0][0][0].style == MsgStyle.NORMAL
+
+
+class TestUNCEncryptedJournalLoading:
+    def test_unc_encrypted_journal_expand_result(self):
+        unc = "\\\\server\\share\\journals\\encrypted.journal"
+        config = _make_config(unc, encrypt=True)
+        mocks = _encrypt_mocks()
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.path.journal_path_exists", return_value=True):
+                with patch("jrnl.path.os.path.exists", return_value=True):
+                    with patch.object(Journal, "_load", return_value=b""):
+                        with patch.object(Journal, "_decrypt", return_value=""):
+                            for m in mocks:
+                                m.start()
+                            try:
+                                j = open_journal("default", config)
+                            finally:
+                                for m in mocks:
+                                    m.stop()
+        assert j.config["journal"] == unc
+
+    def test_unc_encrypted_journal_missing_reports_consistent(self, tmp_path):
+        real_path = str(tmp_path / "unc_simulated_encrypted.txt")
+        unc = "\\\\server\\share\\missing\\encrypted.txt"
+        config = _make_config(unc, encrypt=True)
+        mocks = _encrypt_mocks()
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.journals.Journal.journal_path_exists", return_value=False):
+                with patch("jrnl.journals.Journal.ensure_journal_directory", return_value=True):
+                    with patch("jrnl.journals.Journal.expand_journal_path", return_value=real_path):
+                        with patch("jrnl.journals.Journal.create_journal_file") as mock_create:
+                            with patch("jrnl.path.print_msg") as mock_print:
+                                with patch.object(Journal, "write"):
+                                    with patch.object(Journal, "_load", return_value=b""):
+                                        with patch.object(Journal, "_decrypt", return_value=""):
+                                            mock_create.side_effect = lambda p, n: create_journal_file(real_path, n)
+                                            for m in mocks:
+                                                m.start()
+                                            try:
+                                                j = open_journal("default", config)
+                                            finally:
+                                                for m in mocks:
+                                                    m.stop()
+        created_msgs = [
+            c for c in mock_print.call_args_list
+            if c[0][0].text == MsgText.JournalCreated
+        ]
+        assert len(created_msgs) == 1
+        assert created_msgs[0][0][0].style == MsgStyle.NORMAL
+
+
+class TestDriveLetterPlainJournalLoading:
+    def test_uppercase_drive_plain_journal(self):
+        path = "C:\\Journals\\default.journal"
+        config = _make_config(path, encrypt=False)
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.path.journal_path_exists", return_value=True):
+                with patch("jrnl.path.os.path.exists", return_value=True):
+                    with patch.object(Journal, "_load", return_value=b""):
+                        with patch.object(Journal, "_decrypt", return_value=""):
+                            j = open_journal("default", config)
+        assert j.config["journal"] == path
+
+    def test_lowercase_drive_plain_journal(self):
+        path = "c:\\Journals\\default.journal"
+        config = _make_config(path, encrypt=False)
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.path.journal_path_exists", return_value=True):
+                with patch("jrnl.path.os.path.exists", return_value=True):
+                    with patch.object(Journal, "_load", return_value=b""):
+                        with patch.object(Journal, "_decrypt", return_value=""):
+                            j = open_journal("default", config)
+        assert j.config["journal"] == path
+
+    def test_drive_case_mismatch_both_load_same_content(self):
+        upper_path = "C:\\Journals\\default.journal"
+        lower_path = "c:\\Journals\\default.journal"
+        upper_config = _make_config(upper_path, encrypt=False)
+        lower_config = _make_config(lower_path, encrypt=False)
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.path.journal_path_exists", return_value=True):
+                with patch("jrnl.path.os.path.exists", return_value=True):
+                    with patch.object(Journal, "_load", return_value=b""):
+                        with patch.object(Journal, "_decrypt", return_value=""):
+                            j_upper = open_journal("default", upper_config)
+                            j_lower = open_journal("default", lower_config)
+        assert type(j_upper) == type(j_lower)
+        if os.name == "nt":
+            assert j_upper.config["journal"] == j_lower.config["journal"]
+
+
+class TestDriveLetterEncryptedJournalLoading:
+    def test_uppercase_drive_encrypted_journal(self):
+        path = "C:\\Journals\\encrypted.journal"
+        config = _make_config(path, encrypt=True)
+        mocks = _encrypt_mocks()
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.path.journal_path_exists", return_value=True):
+                with patch("jrnl.path.os.path.exists", return_value=True):
+                    with patch.object(Journal, "_load", return_value=b""):
+                        with patch.object(Journal, "_decrypt", return_value=""):
+                            for m in mocks:
+                                m.start()
+                            try:
+                                j = open_journal("default", config)
+                            finally:
+                                for m in mocks:
+                                    m.stop()
+        assert j.config["journal"] == path
+
+    def test_lowercase_drive_encrypted_journal(self):
+        path = "c:\\Journals\\encrypted.journal"
+        config = _make_config(path, encrypt=True)
+        mocks = _encrypt_mocks()
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.path.journal_path_exists", return_value=True):
+                with patch("jrnl.path.os.path.exists", return_value=True):
+                    with patch.object(Journal, "_load", return_value=b""):
+                        with patch.object(Journal, "_decrypt", return_value=""):
+                            for m in mocks:
+                                m.start()
+                            try:
+                                j = open_journal("default", config)
+                            finally:
+                                for m in mocks:
+                                    m.stop()
+        assert j.config["journal"] == path
+
+    def test_encrypted_drive_case_mismatch_same_journal_type(self):
+        upper_path = "C:\\Journals\\encrypted.journal"
+        lower_path = "c:\\Journals\\encrypted.journal"
+        upper_config = _make_config(upper_path, encrypt=True)
+        lower_config = _make_config(lower_path, encrypt=True)
+        mocks = _encrypt_mocks()
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.path.journal_path_exists", return_value=True):
+                with patch("jrnl.path.os.path.exists", return_value=True):
+                    with patch.object(Journal, "_load", return_value=b""):
+                        with patch.object(Journal, "_decrypt", return_value=""):
+                            for m in mocks:
+                                m.start()
+                            try:
+                                j_upper = open_journal("default", upper_config)
+                                j_lower = open_journal("default", lower_config)
+                            finally:
+                                for m in mocks:
+                                    m.stop()
+        assert type(j_upper) == type(j_lower)
+        if os.name == "nt":
+            assert j_upper.config["journal"] == j_lower.config["journal"]
+
+
+class TestUNCUpgradePathHandling:
+    def test_unc_missing_path_reports_does_not_exist(self):
+        from jrnl.upgrade import upgrade_jrnl
+
+        unc_missing = "\\\\server\\share\\missing\\journal.txt"
+        config = {
+            "journals": {
+                "unc_missing": unc_missing,
+            },
+            "encrypt": False,
+        }
+        with patch("jrnl.upgrade.load_config", return_value=config):
+            with patch("jrnl.upgrade.journal_path_exists", return_value=False):
+                with patch("jrnl.upgrade.print_msg") as mock_print:
+                    with patch("jrnl.upgrade.yesno") as mock_yesno:
+                        mock_yesno.return_value = False
+                        try:
+                            upgrade_jrnl("/fake/config.yaml")
+                        except Exception:
+                            pass
+        does_not_exist_calls = [
+            c for c in mock_print.call_args_list
+            if c[0][0].text == MsgText.DoesNotExist
+        ]
+        assert len(does_not_exist_calls) >= 1
+        msg = does_not_exist_calls[0][0][0]
+        assert msg.style == MsgStyle.ERROR
+        assert msg.params["name"] == unc_missing
+
+    def test_unc_plain_and_encrypted_same_error_style(self):
+        from jrnl.upgrade import upgrade_jrnl
+
+        unc_plain = "\\\\server\\share\\plain.txt"
+        unc_enc = "\\\\server\\share\\encrypted.txt"
+        config = {
+            "journals": {
+                "unc_plain": unc_plain,
+                "unc_enc": {"journal": unc_enc, "encrypt": True},
+            },
+            "encrypt": False,
+        }
+        with patch("jrnl.upgrade.load_config", return_value=config):
+            with patch("jrnl.upgrade.expand_journal_path") as mock_expand:
+                mock_expand.side_effect = lambda p: p
+                with patch("jrnl.upgrade.journal_path_exists", return_value=False):
+                    with patch("jrnl.upgrade.print_msg") as mock_print:
+                        with patch("jrnl.upgrade.yesno", return_value=False):
+                            try:
+                                upgrade_jrnl("/fake/config.yaml")
+                            except Exception:
+                                pass
+        does_not_exist_calls = [
+            c for c in mock_print.call_args_list
+            if c[0][0].text == MsgText.DoesNotExist
+        ]
+        assert len(does_not_exist_calls) >= 2
+        plain_msg = None
+        enc_msg = None
+        for call in does_not_exist_calls:
+            msg = call[0][0]
+            if msg.params["name"] == unc_plain:
+                plain_msg = msg
+            if msg.params["name"] == unc_enc:
+                enc_msg = msg
+        assert plain_msg is not None
+        assert enc_msg is not None
+        assert plain_msg.text == enc_msg.text
+        assert plain_msg.style == enc_msg.style
+
+    def test_unc_check_exists(self):
+        from jrnl.upgrade import check_exists
+
+        unc = "\\\\server\\share\\journal.txt"
+        with patch("jrnl.upgrade.journal_path_exists", return_value=True):
+            result = check_exists(unc)
+        assert result is True
+
+
+class TestDriveLetterUpgradePathHandling:
+    def test_uppercase_drive_missing_reports_does_not_exist(self):
+        from jrnl.upgrade import upgrade_jrnl
+
+        path = "C:\\Missing\\journal.txt"
+        config = {
+            "journals": {"drive_missing": path},
+            "encrypt": False,
+        }
+        with patch("jrnl.upgrade.load_config", return_value=config):
+            with patch("jrnl.upgrade.journal_path_exists", return_value=False):
+                with patch("jrnl.upgrade.print_msg") as mock_print:
+                    with patch("jrnl.upgrade.yesno", return_value=False):
+                        try:
+                            upgrade_jrnl("/fake/config.yaml")
+                        except Exception:
+                            pass
+        does_not_exist_calls = [
+            c for c in mock_print.call_args_list
+            if c[0][0].text == MsgText.DoesNotExist
+        ]
+        assert len(does_not_exist_calls) >= 1
+        msg = does_not_exist_calls[0][0][0]
+        assert msg.style == MsgStyle.ERROR
+        assert msg.params["name"] == path
+
+    def test_lowercase_drive_missing_reports_does_not_exist(self):
+        from jrnl.upgrade import upgrade_jrnl
+
+        path = "c:\\Missing\\journal.txt"
+        config = {
+            "journals": {"drive_missing": path},
+            "encrypt": False,
+        }
+        with patch("jrnl.upgrade.load_config", return_value=config):
+            with patch("jrnl.upgrade.journal_path_exists", return_value=False):
+                with patch("jrnl.upgrade.print_msg") as mock_print:
+                    with patch("jrnl.upgrade.yesno", return_value=False):
+                        try:
+                            upgrade_jrnl("/fake/config.yaml")
+                        except Exception:
+                            pass
+        does_not_exist_calls = [
+            c for c in mock_print.call_args_list
+            if c[0][0].text == MsgText.DoesNotExist
+        ]
+        assert len(does_not_exist_calls) >= 1
+        msg = does_not_exist_calls[0][0][0]
+        assert msg.style == MsgStyle.ERROR
+        assert msg.params["name"] == path
+
+    def test_drive_case_plain_and_encrypted_same_error_style(self):
+        from jrnl.upgrade import upgrade_jrnl
+
+        upper_plain = "C:\\Journals\\plain.txt"
+        lower_enc = "c:\\Journals\\encrypted.txt"
+        config = {
+            "journals": {
+                "upper_plain": upper_plain,
+                "lower_enc": {"journal": lower_enc, "encrypt": True},
+            },
+            "encrypt": False,
+        }
+        with patch("jrnl.upgrade.load_config", return_value=config):
+            with patch("jrnl.upgrade.expand_journal_path") as mock_expand:
+                mock_expand.side_effect = lambda p: p
+                with patch("jrnl.upgrade.journal_path_exists", return_value=False):
+                    with patch("jrnl.upgrade.print_msg") as mock_print:
+                        with patch("jrnl.upgrade.yesno", return_value=False):
+                            try:
+                                upgrade_jrnl("/fake/config.yaml")
+                            except Exception:
+                                pass
+        does_not_exist_calls = [
+            c for c in mock_print.call_args_list
+            if c[0][0].text == MsgText.DoesNotExist
+        ]
+        assert len(does_not_exist_calls) >= 2
+        for call in does_not_exist_calls:
+            assert call[0][0].text == MsgText.DoesNotExist
+            assert call[0][0].style == MsgStyle.ERROR
+
+
+class TestUNCAndDriveLetterCrossEntryConsistency:
+    def test_unc_journal_created_message_same_for_plain_and_encrypted(self, tmp_path):
+        real_plain = str(tmp_path / "unc_plain.txt")
+        real_enc = str(tmp_path / "unc_enc.txt")
+        unc_plain = "\\\\server\\share\\new_plain.txt"
+        unc_enc = "\\\\server\\share\\new_encrypted.txt"
+        plain_config = _make_config(unc_plain, encrypt=False)
+        enc_config = _make_config(unc_enc, encrypt=True)
+        mocks = _encrypt_mocks()
+        plain_msgs = []
+        enc_msgs = []
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.journals.Journal.journal_path_exists", return_value=False):
+                with patch("jrnl.journals.Journal.ensure_journal_directory", return_value=True):
+                    with patch("jrnl.journals.Journal.expand_journal_path", return_value=real_enc):
+                        with patch("jrnl.journals.Journal.create_journal_file") as mock_create:
+                            with patch("jrnl.path.print_msg") as mock_print:
+                                with patch.object(Journal, "write"):
+                                    with patch.object(Journal, "_load", return_value=b""):
+                                        with patch.object(Journal, "_decrypt", return_value=""):
+                                            mock_create.side_effect = lambda p, n: create_journal_file(real_enc, n)
+                                            for m in mocks:
+                                                m.start()
+                                            try:
+                                                open_journal("default", enc_config)
+                                            finally:
+                                                for m in mocks:
+                                                    m.stop()
+                                            enc_msgs = [
+                                                c for c in mock_print.call_args_list
+                                                if c[0][0].text == MsgText.JournalCreated
+                                            ]
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.journals.Journal.journal_path_exists", return_value=False):
+                with patch("jrnl.journals.Journal.ensure_journal_directory", return_value=True):
+                    with patch("jrnl.journals.Journal.expand_journal_path", return_value=real_plain):
+                        with patch("jrnl.journals.Journal.create_journal_file") as mock_create:
+                            with patch("jrnl.path.print_msg") as mock_print:
+                                with patch.object(Journal, "write"):
+                                    with patch.object(Journal, "_load", return_value=b""):
+                                        with patch.object(Journal, "_decrypt", return_value=""):
+                                            mock_create.side_effect = lambda p, n: create_journal_file(real_plain, n)
+                                            open_journal("default", plain_config)
+                                            plain_msgs = [
+                                                c for c in mock_print.call_args_list
+                                                if c[0][0].text == MsgText.JournalCreated
+                                            ]
+        assert len(plain_msgs) == 1
+        assert len(enc_msgs) == 1
+        assert plain_msgs[0][0][0].text == enc_msgs[0][0][0].text
+        assert plain_msgs[0][0][0].style == enc_msgs[0][0][0].style
+
+    def test_drive_letter_journal_created_message_same_for_plain_and_encrypted(self, tmp_path):
+        real_plain = str(tmp_path / "drive_plain.txt")
+        real_enc = str(tmp_path / "drive_enc.txt")
+        drive_plain = "C:\\Journals\\new_plain.txt"
+        drive_enc = "D:\\Journals\\new_encrypted.txt"
+        plain_config = _make_config(drive_plain, encrypt=False)
+        enc_config = _make_config(drive_enc, encrypt=True)
+        mocks = _encrypt_mocks()
+        plain_msgs = []
+        enc_msgs = []
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.journals.Journal.journal_path_exists", return_value=False):
+                with patch("jrnl.journals.Journal.ensure_journal_directory", return_value=True):
+                    with patch("jrnl.journals.Journal.expand_journal_path", return_value=real_enc):
+                        with patch("jrnl.journals.Journal.create_journal_file") as mock_create:
+                            with patch("jrnl.path.print_msg") as mock_print:
+                                with patch.object(Journal, "write"):
+                                    with patch.object(Journal, "_load", return_value=b""):
+                                        with patch.object(Journal, "_decrypt", return_value=""):
+                                            mock_create.side_effect = lambda p, n: create_journal_file(real_enc, n)
+                                            for m in mocks:
+                                                m.start()
+                                            try:
+                                                open_journal("default", enc_config)
+                                            finally:
+                                                for m in mocks:
+                                                    m.stop()
+                                            enc_msgs = [
+                                                c for c in mock_print.call_args_list
+                                                if c[0][0].text == MsgText.JournalCreated
+                                            ]
+        with patch("jrnl.journals.Journal.validate_journal_name"):
+            with patch("jrnl.journals.Journal.journal_path_exists", return_value=False):
+                with patch("jrnl.journals.Journal.ensure_journal_directory", return_value=True):
+                    with patch("jrnl.journals.Journal.expand_journal_path", return_value=real_plain):
+                        with patch("jrnl.journals.Journal.create_journal_file") as mock_create:
+                            with patch("jrnl.path.print_msg") as mock_print:
+                                with patch.object(Journal, "write"):
+                                    with patch.object(Journal, "_load", return_value=b""):
+                                        with patch.object(Journal, "_decrypt", return_value=""):
+                                            mock_create.side_effect = lambda p, n: create_journal_file(real_plain, n)
+                                            open_journal("default", plain_config)
+                                            plain_msgs = [
+                                                c for c in mock_print.call_args_list
+                                                if c[0][0].text == MsgText.JournalCreated
+                                            ]
+        assert len(plain_msgs) == 1
+        assert len(enc_msgs) == 1
+        assert plain_msgs[0][0][0].text == enc_msgs[0][0][0].text
+        assert plain_msgs[0][0][0].style == enc_msgs[0][0][0].style
+
+    def test_unc_vs_local_path_same_directory_created_style(self):
+        unc_path = "\\\\server\\share\\subdir\\journal.txt"
+        local_path = "C:\\Journals\\subdir\\journal.txt"
+        import ntpath
+
+        with patch("jrnl.path.os.path.dirname", side_effect=ntpath.dirname):
+            with patch("jrnl.path.os.path.isdir", return_value=False):
+                with patch("jrnl.path.os.makedirs"):
+                    with patch("jrnl.path.print_msg") as mock_print:
+                        ensure_journal_directory(unc_path)
+        unc_msg = mock_print.call_args[0][0]
+
+        with patch("jrnl.path.os.path.dirname", side_effect=ntpath.dirname):
+            with patch("jrnl.path.os.path.isdir", return_value=False):
+                with patch("jrnl.path.os.makedirs"):
+                    with patch("jrnl.path.print_msg") as mock_print:
+                        ensure_journal_directory(local_path)
+        local_msg = mock_print.call_args[0][0]
+
+        assert unc_msg.text == local_msg.text
+        assert unc_msg.style == local_msg.style
+
+    def test_unc_and_drive_letter_does_not_exist_same_style_in_upgrade(self):
+        from jrnl.upgrade import upgrade_jrnl
+
+        unc_path = "\\\\server\\share\\missing.txt"
+        drive_path = "C:\\Missing\\journal.txt"
+        config = {
+            "journals": {
+                "unc_miss": unc_path,
+                "drive_miss": drive_path,
+            },
+            "encrypt": False,
+        }
+        with patch("jrnl.upgrade.load_config", return_value=config):
+            with patch("jrnl.upgrade.expand_journal_path") as mock_expand:
+                mock_expand.side_effect = lambda p: p
+                with patch("jrnl.upgrade.journal_path_exists", return_value=False):
+                    with patch("jrnl.upgrade.print_msg") as mock_print:
+                        with patch("jrnl.upgrade.yesno", return_value=False):
+                            try:
+                                upgrade_jrnl("/fake/config.yaml")
+                            except Exception:
+                                pass
+        does_not_exist_calls = [
+            c for c in mock_print.call_args_list
+            if c[0][0].text == MsgText.DoesNotExist
+        ]
+        assert len(does_not_exist_calls) >= 2
+        for call in does_not_exist_calls:
+            assert call[0][0].text == MsgText.DoesNotExist
+            assert call[0][0].style == MsgStyle.ERROR
+
