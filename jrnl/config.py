@@ -19,6 +19,7 @@ from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.output import list_journals
 from jrnl.output import print_msg
+from jrnl.path import expand_path
 from jrnl.path import get_config_path
 from jrnl.path import get_default_journal_path
 
@@ -227,3 +228,119 @@ def validate_journal_name(journal_name: str, config: dict) -> None:
                 },
             ),
         )
+
+
+def expand_config_paths(config: dict) -> dict:
+    """
+    Expand all path-like values in the configuration.
+
+    This handles:
+    - config["journal"] (top-level, when scoped)
+    - config["template"]
+    - All journal paths in config["journals"]
+
+    Paths are expanded using expand_path (~ and environment variables).
+    """
+    config = config.copy()
+
+    if isinstance(config.get("journal"), str):
+        config["journal"] = expand_path(config["journal"])
+
+    if isinstance(config.get("template"), str):
+        config["template"] = expand_path(config["template"])
+
+    if "journals" in config:
+        for journal_name, journal_conf in config["journals"].items():
+            if isinstance(journal_conf, dict):
+                if isinstance(journal_conf.get("journal"), str):
+                    config["journals"][journal_name]["journal"] = expand_path(
+                        journal_conf["journal"]
+                    )
+                if isinstance(journal_conf.get("template"), str):
+                    config["journals"][journal_name]["template"] = expand_path(
+                        journal_conf["template"]
+                    )
+            elif isinstance(journal_conf, str):
+                config["journals"][journal_name] = expand_path(journal_conf)
+
+    logging.debug("Expanded config paths")
+    return config
+
+
+def resolve_journal_name(args: argparse.Namespace, config: dict) -> argparse.Namespace:
+    """
+    Resolve the journal name from command line arguments.
+
+    Logic:
+    1. Default to DEFAULT_JOURNAL_KEY
+    2. Check if the first text argument is a journal name (optionally followed by ':')
+    3. If so, use it as the journal name and strip it from args.text
+
+    This replaces the old get_journal_name() and keeps backward compatibility.
+    """
+    args.journal_name = DEFAULT_JOURNAL_KEY
+
+    if args.text:
+        potential_journal_name = args.text[0]
+        if potential_journal_name[-1] == ":":
+            potential_journal_name = potential_journal_name[0:-1]
+
+        if potential_journal_name in config["journals"]:
+            args.journal_name = potential_journal_name
+            args.text = args.text[1:]
+
+    logging.debug("Resolved journal name: %s", args.journal_name)
+    return args
+
+
+def resolve_display_format(
+    args: argparse.Namespace, config: dict
+) -> argparse.Namespace:
+    """
+    Resolve the display/export format with config fallback.
+
+    Priority:
+    1. --format / --export CLI argument (args.export)
+    2. --tags CLI flag (implies 'tags' format)
+    3. config["display_format"]
+    4. None (default pretty print)
+    """
+    if args.tags:
+        args.export = args.export or "tags"
+    else:
+        args.export = args.export or config.get("display_format")
+
+    logging.debug("Resolved display format: %s", args.export)
+    return args
+
+
+def resolve_runtime_config(
+    args: argparse.Namespace, config: dict
+) -> tuple[argparse.Namespace, dict]:
+    """
+    Unified entry point for resolving all runtime configuration.
+
+    This consolidates the previously scattered logic:
+    1. Expand all paths in the config
+    2. Resolve the journal name from args
+    3. Scope the config to the selected journal
+    4. Resolve display format with fallback
+
+    Returns a tuple of (updated_args, scoped_and_expanded_config).
+    """
+    logging.debug("Starting unified runtime config resolution")
+
+    config = expand_config_paths(config)
+
+    args = resolve_journal_name(args, config)
+
+    validate_journal_name(args.journal_name, config)
+
+    config = scope_config(config, args.journal_name)
+
+    config = expand_config_paths(config)
+
+    args = resolve_display_format(args, config)
+
+    logging.debug("Unified runtime config resolution complete")
+    return args, config

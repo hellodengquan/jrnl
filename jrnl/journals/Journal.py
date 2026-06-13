@@ -13,7 +13,6 @@ from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.output import print_msg
-from jrnl.path import expand_path
 from jrnl.prompt import yesno
 
 from .Entry import Entry
@@ -481,11 +480,13 @@ def open_journal(journal_name: str, config: dict, legacy: bool = False) -> Journ
     Creates a normal, encrypted or DayOne journal based on the passed config.
     If legacy is True, it will open Journals with legacy classes build for
     backwards compatibility with jrnl 1.x
+
+    Note: Path expansion is expected to have been done by resolve_runtime_config()
+    in jrnl/config.py before calling this function.
     """
     logging.debug(f"open_journal '{journal_name}'")
     validate_journal_name(journal_name, config)
     config = config.copy()
-    config["journal"] = expand_path(config["journal"])
 
     if os.path.isdir(config["journal"]):
         if config["encrypt"]:

@@ -10,8 +10,7 @@ from jrnl import plugins
 from jrnl import time
 from jrnl.config import DEFAULT_JOURNAL_KEY
 from jrnl.config import get_config_path
-from jrnl.config import get_journal_name
-from jrnl.config import scope_config
+from jrnl.config import resolve_runtime_config
 from jrnl.editor import get_text_from_editor
 from jrnl.editor import get_text_from_stdin
 from jrnl.editor import read_template_file
@@ -54,8 +53,8 @@ def run(args: "Namespace"):
     # Apply config overrides
     config = apply_overrides(args, config)
 
-    args = get_journal_name(args, config)
-    config = scope_config(config, args.journal_name)
+    # Unified config resolution: path expansion, journal name, scoping, display format
+    args, config = resolve_runtime_config(args, config)
 
     # Run post-config command now that config is ready
     if callable(args.postconfig_cmd):
@@ -388,9 +387,6 @@ def _change_time_search_results(
 def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> None:
     if len(journal) == 0:
         return
-
-    # Get export format from config file if not provided at the command line
-    args.export = args.export or kwargs["config"].get("display_format")
 
     if args.tags:
         print(plugins.get_exporter("tags").export(journal))

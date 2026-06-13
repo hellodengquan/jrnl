@@ -5,6 +5,7 @@ import logging
 import os
 
 from jrnl import __version__
+from jrnl.config import expand_config_paths
 from jrnl.config import is_config_json
 from jrnl.config import load_config
 from jrnl.config import scope_config
@@ -55,6 +56,8 @@ def upgrade_jrnl(config_path: str) -> None:
 
     print_msg(Message(MsgText.WelcomeToJrnl, MsgStyle.NORMAL, {"version": __version__}))
 
+    config = expand_config_paths(config)
+
     encrypted_journals = {}
     plain_journals = {}
     other_journals = {}
@@ -62,11 +65,11 @@ def upgrade_jrnl(config_path: str) -> None:
 
     for journal_name, journal_conf in config["journals"].items():
         if isinstance(journal_conf, dict):
-            path = expand_path(journal_conf.get("journal"))
+            path = journal_conf.get("journal")
             encrypt = journal_conf.get("encrypt")
         else:
             encrypt = config.get("encrypt")
-            path = expand_path(journal_conf)
+            path = journal_conf
 
         if os.path.exists(path):
             path = os.path.expanduser(path)
