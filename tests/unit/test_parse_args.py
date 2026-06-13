@@ -40,6 +40,8 @@ def expected_args(**kwargs):
         "starred": False,
         "start_date": None,
         "strict": False,
+        "summary": False,
+        "summary_period": "month",
         "tagged": False,
         "tags": False,
         "template": None,

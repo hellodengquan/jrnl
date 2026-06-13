@@ -395,6 +395,12 @@ def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> 
     if args.tags:
         print(plugins.get_exporter("tags").export(journal))
 
+    elif args.summary or args.export == "summary":
+        from jrnl.plugins.summary_exporter import SummaryExporter
+
+        period = args.summary_period or "month"
+        print(SummaryExporter._generate_summary(journal, period=period))
+
     elif args.short or args.export == "short":
         print(journal.pprint(short=True))
 
@@ -447,6 +453,7 @@ def _has_display_args(args: "Namespace") -> bool:
             args.tags,
             args.short,
             args.export,  # --format
+            args.summary,
         )
     )
 

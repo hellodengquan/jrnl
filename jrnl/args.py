@@ -373,6 +373,23 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         "occurrences",
     )
     exporting.add_argument(
+        "--summary",
+        dest="summary",
+        action="store_true",
+        help="Alias for '--format summary'. Generates a periodic review summary",
+    )
+    exporting.add_argument(
+        "--summary-period",
+        dest="summary_period",
+        metavar="PERIOD",
+        choices=["week", "month"],
+        default="month",
+        help="""
+        Specifies the period for the summary (used with --format summary or --summary).
+        PERIOD can be: week or month (default: month)
+        """,
+    )
+    exporting.add_argument(
         "--short",
         dest="short",
         action="store_true",
