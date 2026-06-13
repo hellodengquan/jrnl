@@ -1,10 +1,16 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+import json
 import os
+import subprocess
+import sys
+import tempfile
+import time as time_mod
 from unittest import mock
 
 import pytest
+from ruamel.yaml import YAML
 
 import jrnl
 from jrnl.args import parse_args
@@ -708,3 +714,258 @@ class TestCliE2eResolveThenDisplay:
 
         _display_search_results(args, journal)
         journal.pprint.assert_called_once_with(short=True)
+
+
+class TestSubprocessCliSmoke:
+    @pytest.fixture
+    def tmp_jrnl_env(self, monkeypatch):
+        tmpdir = tempfile.mkdtemp(prefix="jrnl_smoke_")
+        config_path = os.path.join(tmpdir, "jrnl.yaml")
+        journal_path = os.path.join(tmpdir, "journal.txt")
+
+        config_content = {
+            "journals": {"default": journal_path},
+            "linewrap": 80,
+        }
+
+        yaml = YAML(typ="safe")
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config_content, f)
+
+        with open(journal_path, "w", encoding="utf-8") as f:
+            f.write("2023-01-15 10:00 Title One\n\nBody of first entry.\n\n")
+            f.write("2023-02-20 14:30 Title Two @tag\n\nSecond body.\n\n")
+
+        monkeypatch.delenv("JRNL_CONFIG", raising=False)
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
+        return {
+            "tmpdir": tmpdir,
+            "config_path": config_path,
+            "journal_path": journal_path,
+            "env": os.environ.copy(),
+        }
+
+    def _run_cli(self, tmp_env, cli_args):
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        env = tmp_env["env"].copy()
+        env["PYTHONPATH"] = (
+            project_root + os.pathsep + env.get("PYTHONPATH", "")
+        )
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "jrnl",
+            "--config-file",
+            tmp_env["config_path"],
+        ] + cli_args
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=tmp_env["tmpdir"],
+            timeout=30,
+        )
+        return result
+
+    def test_cli_format_markdown_smoke(self, tmp_jrnl_env):
+        result = self._run_cli(tmp_jrnl_env, ["--format", "markdown"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "# " in result.stdout or "## " in result.stdout or result.stdout
+
+    def test_cli_format_json_smoke(self, tmp_jrnl_env):
+        result = self._run_cli(tmp_jrnl_env, ["--format", "json"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        parsed = json.loads(result.stdout)
+        assert "entries" in parsed
+        assert len(parsed["entries"]) >= 1
+
+    def test_cli_tags_flag_smoke(self, tmp_jrnl_env):
+        result = self._run_cli(tmp_jrnl_env, ["--tags"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "@tag" in result.stdout
+
+    def test_cli_no_format_pretty_smoke(self, tmp_jrnl_env):
+        result = self._run_cli(tmp_jrnl_env, ["-contains", "Title"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "Title One" in result.stdout or result.stdout
+
+
+class TestFormatTagsAlternationRegression:
+    def _make_config(self):
+        return {
+            "journals": {
+                "default": {"journal": "~/default.txt"},
+            },
+            "linewrap": 80,
+            "display_format": None,
+        }
+
+    def _make_journal(self):
+        journal = jrnl.journals.Journal()
+        journal.new_entry("entry one @alpha @beta")
+        journal.new_entry("entry two @alpha")
+        return journal
+
+    @mock.patch("builtins.print")
+    def test_format_then_tags_no_pollution(self, mock_print):
+        config = self._make_config()
+        journal = self._make_journal()
+
+        args1, cfg1 = resolve_runtime_config(
+            parse_args(["--format", "json"]), config
+        )
+        _display_search_results(args1, journal)
+
+        args2, cfg2 = resolve_runtime_config(parse_args(["--tags"]), config)
+        assert args2.export == "tags"
+        assert cfg2.get("display_format") is None or not cfg2.get("display_format")
+
+        with mock.patch("jrnl.plugins.get_exporter") as mock_get_exp:
+            mock_exp = mock.Mock()
+            mock_exp.export = mock.Mock(return_value="tag list")
+            mock_get_exp.return_value = mock_exp
+            _display_search_results(args2, journal)
+            mock_get_exp.assert_called_once_with("tags")
+
+    @mock.patch("builtins.print")
+    def test_tags_then_format_no_pollution(self, mock_print):
+        config = self._make_config()
+        journal = self._make_journal()
+
+        args1, _ = resolve_runtime_config(parse_args(["--tags"]), config)
+        _display_search_results(args1, journal)
+
+        args2, _ = resolve_runtime_config(
+            parse_args(["--format", "markdown"]), config
+        )
+        assert args2.export == "markdown"
+
+    @mock.patch("builtins.print")
+    def test_format_json_format_markdown_no_cross_contamination(self, mock_print):
+        config = {"journals": {"default": {"journal": "~/j.txt"}}}
+        journal = self._make_journal()
+
+        args1, _ = resolve_runtime_config(
+            parse_args(["--format", "json"]), config
+        )
+        assert args1.export == "json"
+        _display_search_results(args1, journal)
+
+        args2, _ = resolve_runtime_config(
+            parse_args(["--format", "markdown"]), config
+        )
+        assert args2.export == "markdown"
+
+        args3, _ = resolve_runtime_config(
+            parse_args(["--tags"]), config
+        )
+        assert args3.export == "tags"
+
+    @mock.patch("builtins.print")
+    def test_five_round_trip_alternation_no_state_leak(self, mock_print):
+        config = {"journals": {"default": {"journal": "~/j.txt"}}}
+        expected_sequence = [
+            (["--format", "json"], "json"),
+            (["--tags"], "tags"),
+            (["--format", "markdown"], "markdown"),
+            (["--tags"], "tags"),
+            (["--format", "yaml"], "yaml"),
+        ]
+        for cli_args, expected_format in expected_sequence:
+            args, _ = resolve_runtime_config(parse_args(cli_args), config)
+            assert args.export == expected_format
+
+
+class TestResolveRuntimeConfigBenchmark:
+    NUM_JOURNALS = 50
+    SAMPLE_ITERATIONS = 100
+
+    def _make_large_config(self, num_journals=NUM_JOURNALS):
+        journals = {}
+        for i in range(num_journals):
+            journals[f"journal_{i:03d}"] = {
+                "journal": f"~/journals/j_{i:03d}/journal.txt",
+                "template": f"~/templates/tpl_{i:03d}.txt",
+                "linewrap": 80 + i % 10,
+                "editor": "vim" if i % 2 == 0 else "nano",
+                "tagsymbols": "@",
+                "display_format": ["markdown", "json", "yaml", None][i % 4],
+                "encrypt": i % 7 == 0,
+            }
+        return {
+            "journals": journals,
+            "linewrap": 80,
+            "tagsymbols": "@",
+            "display_format": "markdown",
+            "editor": None,
+            "template": "~/global_template.txt",
+        }
+
+    def _select_journal_args(self, idx):
+        return parse_args([f"journal_{idx:03d}"])
+
+    def test_50_journals_resolve_is_snappy(self):
+        config = self._make_large_config(50)
+        args_list = [self._select_journal_args(i % 50) for i in range(50)]
+
+        start = time_mod.perf_counter()
+        for args in args_list:
+            resolve_runtime_config(args, config)
+        elapsed = time_mod.perf_counter() - start
+
+        assert elapsed < 1.0, (
+            f"Resolving 50 journal configs took {elapsed:.3f}s, expected <1s"
+        )
+
+    def test_large_config_100_iterations_benchmark(self):
+        config = self._make_large_config(self.NUM_JOURNALS)
+        args_seq = [
+            self._select_journal_args(i % self.NUM_JOURNALS)
+            for i in range(self.SAMPLE_ITERATIONS)
+        ]
+
+        start = time_mod.perf_counter()
+        for args in args_seq:
+            resolve_runtime_config(args, config)
+        total = time_mod.perf_counter() - start
+        per_call_avg = total / self.SAMPLE_ITERATIONS
+
+        assert per_call_avg < 0.020, (
+            f"Avg per-call {per_call_avg:.5f}s exceeds 20ms budget; "
+            f"total {total:.3f}s over {self.SAMPLE_ITERATIONS} calls"
+        )
+
+    def test_scoped_paths_all_expanded(self):
+        config = self._make_large_config(self.NUM_JOURNALS)
+
+        for i in range(self.NUM_JOURNALS):
+            args = self._select_journal_args(i)
+            resolved_args, scoped = resolve_runtime_config(args, config)
+
+            assert resolved_args.journal_name == f"journal_{i:03d}"
+            assert scoped["journal"] == os.path.expanduser(
+                f"~/journals/j_{i:03d}/journal.txt"
+            )
+            assert scoped["template"] == os.path.expanduser(
+                f"~/templates/tpl_{i:03d}.txt"
+            )
+
+    def test_original_large_config_immutable(self):
+        import copy
+
+        config = self._make_large_config(self.NUM_JOURNALS)
+        snapshot = copy.deepcopy(config)
+
+        for i in range(10):
+            resolve_runtime_config(self._select_journal_args(i), config)
+
+        assert config == snapshot, (
+            "resolve_runtime_config mutated the original large config reference"
+        )
