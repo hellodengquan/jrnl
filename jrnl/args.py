@@ -390,6 +390,18 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         """,
     )
     exporting.add_argument(
+        "--summary-todo-sort",
+        dest="summary_todo_sort",
+        metavar="SORT",
+        choices=["date", "tag"],
+        default=None,
+        help="""
+        Specifies the sort order for todo items in the summary.
+        SORT can be: date (newest first) or tag (alphabetical).
+        Default: date (newest first)
+        """,
+    )
+    exporting.add_argument(
         "--short",
         dest="short",
         action="store_true",

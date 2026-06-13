@@ -399,13 +399,15 @@ def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> 
         from jrnl.plugins.summary_exporter import SummaryExporter
 
         period = args.summary_period or "month"
-        print(SummaryExporter._generate_summary(journal, period=period))
+        todo_sort = getattr(args, "summary_todo_sort", None)
+        print(SummaryExporter._generate_summary(journal, period=period, todo_sort=todo_sort))
 
     elif args.export == "summary_json":
         from jrnl.plugins.summary_exporter import SummaryExporter
 
         period = args.summary_period or "month"
-        print(SummaryExporter.export_journal_json(journal, period=period))
+        todo_sort = getattr(args, "summary_todo_sort", None)
+        print(SummaryExporter.export_journal_json(journal, period=period, todo_sort=todo_sort))
 
     elif args.short or args.export == "short":
         print(journal.pprint(short=True))

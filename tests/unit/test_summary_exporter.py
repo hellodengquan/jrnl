@@ -333,6 +333,64 @@ class TestI18n:
         monkeypatch.delenv("LANG", raising=False)
         assert _detect_language() == "en"
 
+    def test_detect_language_fr_env(self, monkeypatch):
+        monkeypatch.delenv("JRNL_LANG", raising=False)
+        monkeypatch.delenv("LANG", raising=False)
+        monkeypatch.setenv("JRNL_LANG", "fr_FR")
+        assert _detect_language() == "fr"
+
+    def test_detect_language_es_env(self, monkeypatch):
+        monkeypatch.delenv("JRNL_LANG", raising=False)
+        monkeypatch.delenv("LANG", raising=False)
+        monkeypatch.setenv("JRNL_LANG", "es_ES")
+        assert _detect_language() == "es"
+
+    def test_detect_language_fr_from_lang_env(self, monkeypatch):
+        monkeypatch.delenv("JRNL_LANG", raising=False)
+        monkeypatch.delenv("LANG", raising=False)
+        monkeypatch.setenv("LANG", "fr_CA.UTF-8")
+        assert _detect_language() == "fr"
+
+    def test_detect_language_es_from_lang_env(self, monkeypatch):
+        monkeypatch.delenv("JRNL_LANG", raising=False)
+        monkeypatch.delenv("LANG", raising=False)
+        monkeypatch.setenv("LANG", "es_MX.UTF-8")
+        assert _detect_language() == "es"
+
+    def test_t_output_fr(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "fr")
+        assert SummaryExporter._t("review_title") == "Résumé Périodique"
+        assert SummaryExporter._t("overview") == "Statistiques Générales"
+
+    def test_t_output_es(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "es")
+        assert SummaryExporter._t("review_title") == "Resumen Periódico"
+        assert SummaryExporter._t("overview") == "Estadísticas Generales"
+
+    def test_t_no_entries_found_fr(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "fr")
+        result = SummaryExporter._t("no_entries_found")
+        assert "Aucune entrée trouvée" in result
+
+    def test_t_no_entries_found_es(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "es")
+        result = SummaryExporter._t("no_entries_found")
+        assert "No se encontraron entradas" in result
+
+    def test_summary_output_fr(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "fr")
+        journal.entries = [_make_entry(journal, "2024-01-05 09:00", "entry @work")]
+        result = SummaryExporter._generate_summary(journal, period="month")
+        assert "Résumé Périodique" in result
+        assert "Statistiques Générales" in result
+
+    def test_summary_output_es(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "es")
+        journal.entries = [_make_entry(journal, "2024-01-05 09:00", "entry @work")]
+        result = SummaryExporter._generate_summary(journal, period="month")
+        assert "Resumen Periódico" in result
+        assert "Estadísticas Generales" in result
+
     def test_t_output_zh(self, monkeypatch):
         monkeypatch.setenv("JRNL_LANG", "zh")
         assert SummaryExporter._t("review_title") == "回顾摘要"
@@ -493,8 +551,12 @@ class TestSummaryJSON:
         journal.entries = []
         result = SummaryExporter.export_journal_json(journal, period="month")
         data = json.loads(result)
+        assert data["version"] == "1.0.0"
+        assert "schema" in data
+        assert data["schema"]["version"] == "1.0.0"
         assert data["total_entries"] == 0
         assert data["periods"] == []
+        assert data["sort"] is None
 
     def test_export_journal_json_structure(self, journal):
         e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: task @work")
@@ -503,8 +565,14 @@ class TestSummaryJSON:
         result = SummaryExporter.export_journal_json(journal, period="month")
         data = json.loads(result)
 
+        assert data["version"] == "1.0.0"
+        assert "schema" in data
+        assert data["schema"]["version"] == "1.0.0"
+        assert "description" in data["schema"]
+        assert "fields" in data["schema"]
         assert data["period"] == "month"
         assert data["total_entries"] == 1
+        assert data["sort"] is None
         assert len(data["periods"]) == 1
 
         period = data["periods"][0]
@@ -518,6 +586,61 @@ class TestSummaryJSON:
         assert "todos" in period
         assert "featured_entries" in period
         assert "daily_distribution" in period
+
+    def test_export_journal_json_version_field(self, journal):
+        from jrnl.plugins.summary_exporter import _SUMMARY_JSON_VERSION
+
+        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
+        journal.entries = [e1]
+
+        result = SummaryExporter.export_journal_json(journal, period="month")
+        data = json.loads(result)
+
+        assert data["version"] == _SUMMARY_JSON_VERSION
+        assert data["schema"]["version"] == _SUMMARY_JSON_VERSION
+
+    def test_export_journal_json_schema_fields(self, journal):
+        from jrnl.plugins.summary_exporter import _SUMMARY_JSON_SCHEMA
+
+        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
+        journal.entries = [e1]
+
+        result = SummaryExporter.export_journal_json(journal, period="month")
+        data = json.loads(result)
+
+        assert data["schema"] == _SUMMARY_JSON_SCHEMA
+        assert "version" in data["schema"]["fields"]
+        assert "periods[].todos[].tags" in data["schema"]["fields"]
+        assert "sort" in data["schema"]["fields"]
+
+    def test_export_journal_json_sort_date(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: older task @personal")
+        e2 = _make_entry(journal, "2024-01-10 09:00", "TODO: newer task @work")
+        journal.entries = [e1, e2]
+
+        result = SummaryExporter.export_journal_json(journal, period="month", todo_sort="date")
+        data = json.loads(result)
+
+        assert data["sort"] == "date"
+        todos = data["periods"][0]["todos"]
+        assert len(todos) == 2
+        assert todos[0]["date"] == "2024-01-10"
+        assert todos[1]["date"] == "2024-01-05"
+
+    def test_export_journal_json_sort_tag(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: beta task @beta")
+        e2 = _make_entry(journal, "2024-01-10 09:00", "TODO: alpha task @alpha")
+        journal.entries = [e1, e2]
+
+        result = SummaryExporter.export_journal_json(journal, period="month", todo_sort="tag")
+        data = json.loads(result)
+
+        assert data["sort"] == "tag"
+        todos = data["periods"][0]["todos"]
+        assert len(todos) == 2
+        assert "@alpha" in str(todos[0]["tags"])
+        assert "@beta" in str(todos[1]["tags"])
+        assert todos[0]["tags"] is not None
 
     def test_export_journal_json_tag_trend(self, journal):
         e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
@@ -556,8 +679,91 @@ class TestSummaryJSON:
 
         result = SummaryJSONExporter.export_journal(journal)
         data = json.loads(result)
+        assert data["version"] == "1.0.0"
         assert data["period"] == "month"
         assert data["total_entries"] == 1
+
+
+class TestTodoSorting:
+    def test_find_todo_items_sort_date_newest_first(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: older @work")
+        e2 = _make_entry(journal, "2024-01-15 09:00", "TODO: newer @personal")
+        e3 = _make_entry(journal, "2024-01-10 09:00", "TODO: middle @work")
+        entries = [e1, e2, e3]
+
+        result = SummaryExporter._find_todo_items(entries, sort="date")
+
+        assert result[0]["date"] > result[1]["date"]
+        assert result[1]["date"] > result[2]["date"]
+        assert result[0]["title"] == "TODO: newer @personal"
+
+    def test_find_todo_items_sort_tag_alphabetical(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: charlie @charlie")
+        e2 = _make_entry(journal, "2024-01-05 09:00", "TODO: alpha @alpha")
+        e3 = _make_entry(journal, "2024-01-05 09:00", "TODO: beta @beta")
+        entries = [e1, e2, e3]
+
+        result = SummaryExporter._find_todo_items(entries, sort="tag")
+
+        assert "tags" in result[0]
+        assert result[0]["tags"][0] == "@alpha"
+        assert result[1]["tags"][0] == "@beta"
+        assert result[2]["tags"][0] == "@charlie"
+
+    def test_find_todo_items_sort_tag_with_multiple_tags(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: zulu @zulu @alpha")
+        e2 = _make_entry(journal, "2024-01-05 09:00", "TODO: beta @beta @gamma")
+        entries = [e1, e2]
+
+        result = SummaryExporter._find_todo_items(entries, sort="tag")
+
+        assert result[0]["tags"][0] == "@alpha"
+        assert result[1]["tags"][0] == "@beta"
+        assert len(result[0]["tags"]) == 2
+        assert "@zulu" in result[0]["tags"]
+        assert "@gamma" in result[1]["tags"]
+
+    def test_find_todo_items_sort_tag_no_tags(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: no tags")
+        e2 = _make_entry(journal, "2024-01-05 09:00", "TODO: alpha @alpha")
+        entries = [e1, e2]
+
+        result = SummaryExporter._find_todo_items(entries, sort="tag")
+
+        assert result[0]["tags"] == []
+        assert result[1]["tags"][0] == "@alpha"
+
+    def test_generate_summary_todo_sort_date(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: older @work")
+        e2 = _make_entry(journal, "2024-01-15 09:00", "TODO: newer @personal")
+        journal.entries = [e1, e2]
+
+        result = SummaryExporter._generate_summary(journal, period="month", todo_sort="date")
+
+        assert "Outstanding Todo Items" in result
+        lines = result.split("\n")
+        todo_lines = [l for l in lines if l.strip().startswith("1.") or l.strip().startswith("2.")]
+        todo_lines = [l for l in todo_lines if "TODO" in l]
+        assert len(todo_lines) == 2
+        assert "01-15" in todo_lines[0]
+        assert "01-05" in todo_lines[1]
+
+    def test_generate_summary_todo_sort_tag(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: beta @beta")
+        e2 = _make_entry(journal, "2024-01-10 09:00", "TODO: alpha @alpha")
+        journal.entries = [e1, e2]
+
+        result = SummaryExporter._generate_summary(journal, period="month", todo_sort="tag")
+
+        assert "Outstanding Todo Items" in result
+        lines = result.split("\n")
+        todo_lines = [l for l in lines if l.strip().startswith("1.") or l.strip().startswith("2.")]
+        todo_lines = [l for l in todo_lines if "TODO" in l]
+        assert len(todo_lines) == 2
+        assert "alpha" in todo_lines[0]
+        assert "beta" in todo_lines[1]
 
 
 class TestSummaryControllerIntegration:
@@ -648,8 +854,53 @@ class TestSummaryControllerIntegration:
 
         captured = capsys.readouterr()
         data = json.loads(captured.out)
+        assert data["version"] == "1.0.0"
         assert data["period"] == "month"
         assert data["total_entries"] == 1
+
+    def test_controller_summary_todo_sort_date(
+        self, journal, capsys, default_config, monkeypatch
+    ):
+        from jrnl.args import parse_args
+        from jrnl.controller import _display_search_results
+
+        monkeypatch.setenv("JRNL_LANG", "en")
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: older @work")
+        e2 = _make_entry(journal, "2024-01-15 09:00", "TODO: newer @personal")
+        journal.entries = [e1, e2]
+
+        mock_args = parse_args(["--summary", "--summary-todo-sort", "date"])
+        _display_search_results(mock_args, journal, config=default_config)
+
+        captured = capsys.readouterr()
+        assert "Outstanding Todo Items" in captured.out
+        lines = captured.out.split("\n")
+        todo_lines = [l for l in lines if l.strip().startswith("1.") or l.strip().startswith("2.")]
+        todo_lines = [l for l in todo_lines if "TODO" in l]
+        assert len(todo_lines) == 2
+        assert "01-15" in todo_lines[0]
+        assert "01-05" in todo_lines[1]
+
+    def test_controller_summary_json_todo_sort_tag(
+        self, journal, capsys, default_config
+    ):
+        from jrnl.args import parse_args
+        from jrnl.controller import _display_search_results
+
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: beta @beta")
+        e2 = _make_entry(journal, "2024-01-10 09:00", "TODO: alpha @alpha")
+        journal.entries = [e1, e2]
+
+        mock_args = parse_args(["--format", "summary_json", "--summary-todo-sort", "tag"])
+        _display_search_results(mock_args, journal, config=default_config)
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["sort"] == "tag"
+        todos = data["periods"][0]["todos"]
+        assert len(todos) == 2
+        assert "@alpha" in str(todos[0]["tags"])
+        assert "@beta" in str(todos[1]["tags"])
 
 
 class TestSubprocessSmoke:

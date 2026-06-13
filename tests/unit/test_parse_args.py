@@ -42,6 +42,7 @@ def expected_args(**kwargs):
         "strict": False,
         "summary": False,
         "summary_period": "month",
+        "summary_todo_sort": None,
         "tagged": False,
         "tags": False,
         "template": None,

@@ -75,6 +75,106 @@ _SUMMARY_I18N = {
         "month_nov": "11月",
         "month_dec": "12月",
     },
+    "fr": {
+        "review_title": "Résumé Périodique",
+        "overview": "Statistiques Générales",
+        "total_entries": "Nombre d'entrées: {count}",
+        "starred_entries": "Entrées étoilées: {count}",
+        "tags_used": "Tags utilisés: {count}",
+        "todo_items": "Tâches à faire: {count}",
+        "tag_activity": "Classement par Activité des Tags",
+        "times": "fois",
+        "todo_summary": "Tâches en Attente",
+        "featured_entries": "Entrées en Vedette",
+        "daily_distribution": "Distribution Journalière des Entrées",
+        "entries_label": "entrées",
+        "no_entries_found": "Aucune entrée trouvée dans la période sélectionnée.",
+        "year_month": "{year} {month}",
+        "year_week": "{year} Semaine {week} ({start} - {end})",
+        "month_jan": "Janvier",
+        "month_feb": "Février",
+        "month_mar": "Mars",
+        "month_apr": "Avril",
+        "month_may": "Mai",
+        "month_jun": "Juin",
+        "month_jul": "Juillet",
+        "month_aug": "Août",
+        "month_sep": "Septembre",
+        "month_oct": "Octobre",
+        "month_nov": "Novembre",
+        "month_dec": "Décembre",
+    },
+    "es": {
+        "review_title": "Resumen Periódico",
+        "overview": "Estadísticas Generales",
+        "total_entries": "Total de entradas: {count}",
+        "starred_entries": "Entradas destacadas: {count}",
+        "tags_used": "Etiquetas usadas: {count}",
+        "todo_items": "Tareas pendientes: {count}",
+        "tag_activity": "Ranking de Actividad de Etiquetas",
+        "times": "veces",
+        "todo_summary": "Tareas Pendientes",
+        "featured_entries": "Entradas Destacadas",
+        "daily_distribution": "Distribución Diaria de Entradas",
+        "entries_label": "entradas",
+        "no_entries_found": "No se encontraron entradas en el rango de tiempo seleccionado.",
+        "year_month": "{year} {month}",
+        "year_week": "{year} Semana {week} ({start} - {end})",
+        "month_jan": "Enero",
+        "month_feb": "Febrero",
+        "month_mar": "Marzo",
+        "month_apr": "Abril",
+        "month_may": "Mayo",
+        "month_jun": "Junio",
+        "month_jul": "Julio",
+        "month_aug": "Agosto",
+        "month_sep": "Septiembre",
+        "month_oct": "Octubre",
+        "month_nov": "Noviembre",
+        "month_dec": "Diciembre",
+    },
+}
+
+_SUMMARY_JSON_VERSION = "1.0.0"
+_SUMMARY_JSON_SCHEMA = {
+    "version": "1.0.0",
+    "description": "Periodic review summary schema for jrnl entries",
+    "fields": {
+        "version": "string - Schema version for backward compatibility",
+        "schema": "object - Schema metadata including description and field definitions",
+        "period": "string - 'week' or 'month' - The period used for grouping",
+        "total_entries": "integer - Total number of entries in the summary",
+        "periods": "array - List of period data objects, sorted newest first",
+        "periods[].period_key": "string - Period identifier (e.g., '2024-01' or '2024-W01')",
+        "periods[].label": "string - Human-readable period label in detected language",
+        "periods[].label_en": "string - Human-readable period label in English (for consistency)",
+        "periods[].stats": "object - Period statistics",
+        "periods[].stats.entries": "integer - Number of entries in this period",
+        "periods[].stats.starred": "integer - Number of starred entries in this period",
+        "periods[].stats.tags": "integer - Number of unique tags used in this period",
+        "periods[].stats.todos": "integer - Number of todo items found in this period",
+        "periods[].tags": "array - List of tag activity objects with trend data",
+        "periods[].tags[].tag": "string - Tag name (including symbol, e.g., '@work')",
+        "periods[].tags[].count": "integer - Number of times tag appeared in this period",
+        "periods[].tags[].previous_count": "integer or null - Tag count from previous period, null if no previous period",
+        "periods[].tags[].trend": "integer or null - Difference from previous period (count - previous_count), null if no previous period",
+        "periods[].todos": "array - List of todo items found in this period",
+        "periods[].todos[].date": "string - Entry date in 'YYYY-MM-DD' format",
+        "periods[].todos[].time": "string - Entry time in 'HH:MM' format",
+        "periods[].todos[].title": "string - Entry title",
+        "periods[].todos[].text": "string - Entry body text",
+        "periods[].todos[].tags": "array - List of tags associated with this entry (only when sorted by tag)",
+        "periods[].featured_entries": "array - List of featured entries (up to 5, prioritizing starred and tagged entries)",
+        "periods[].featured_entries[].date": "string - Entry date in 'YYYY-MM-DD' format",
+        "periods[].featured_entries[].time": "string - Entry time in 'HH:MM' format",
+        "periods[].featured_entries[].title": "string - Entry title",
+        "periods[].featured_entries[].starred": "boolean - Whether entry is starred",
+        "periods[].featured_entries[].tags": "array - List of tags associated with this entry",
+        "periods[].daily_distribution": "array - List of daily entry count objects",
+        "periods[].daily_distribution[].date": "string - Date in 'MM-DD' format",
+        "periods[].daily_distribution[].count": "integer - Number of entries on this date",
+        "sort": "string or null - Sort order applied to todos: 'date' (newest first), 'tag' (alphabetical), or null for default",
+    },
 }
 
 _MONTH_KEYS = [
@@ -127,25 +227,40 @@ def _detect_language() -> str:
     """Detect display language from environment.
 
     Checks (in order): JRNL_LANG env var, LANG env var, system locale.
-    Returns 'zh' for Chinese locales, 'en' otherwise (default).
+    Returns 'zh' for Chinese, 'fr' for French, 'es' for Spanish,
+    'en' otherwise (default).
     """
     lang_env = os.environ.get("JRNL_LANG", "").strip().lower()
     if lang_env.startswith("zh"):
         return "zh"
+    if lang_env.startswith("fr"):
+        return "fr"
+    if lang_env.startswith("es"):
+        return "es"
     if lang_env.startswith("en"):
         return "en"
 
     sys_lang = os.environ.get("LANG", "").strip().lower()
     if sys_lang.startswith("zh"):
         return "zh"
+    if sys_lang.startswith("fr"):
+        return "fr"
+    if sys_lang.startswith("es"):
+        return "es"
 
     if sys.platform.startswith("darwin") or sys.platform.startswith("linux"):
         try:
             import locale
 
             loc, _ = locale.getdefaultlocale()
-            if loc and loc.lower().startswith("zh"):
-                return "zh"
+            if loc:
+                loc_lower = loc.lower()
+                if loc_lower.startswith("zh"):
+                    return "zh"
+                if loc_lower.startswith("fr"):
+                    return "fr"
+                if loc_lower.startswith("es"):
+                    return "es"
         except Exception:
             pass
 
@@ -190,18 +305,33 @@ class SummaryExporter(TextExporter):
         return cls._generate_summary(journal, period="month")
 
     @classmethod
-    def export_journal_json(cls, journal: "Journal", period: str = "month") -> str:
+    def export_journal_json(
+        cls, journal: "Journal", period: str = "month", todo_sort: str | None = None
+    ) -> str:
         """Generates a periodic review summary as JSON.
 
         Args:
             journal: The journal to summarize
             period: 'week' or 'month'
+            todo_sort: Sort order for todo items: 'date' (newest first),
+                       'tag' (alphabetical), or None for default order
 
         Returns:
-            JSON string with structured summary data
+            JSON string with structured summary data including version and schema
         """
         if not journal.entries:
-            return json.dumps({"periods": [], "total_entries": 0}, indent=2)
+            return json.dumps(
+                {
+                    "version": _SUMMARY_JSON_VERSION,
+                    "schema": _SUMMARY_JSON_SCHEMA,
+                    "period": period,
+                    "total_entries": 0,
+                    "periods": [],
+                    "sort": todo_sort,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
 
         periods = cls._group_by_period(journal.entries, period)
         sorted_keys = sorted(periods.keys(), reverse=True)
@@ -215,14 +345,21 @@ class SummaryExporter(TextExporter):
                 prev_tag_stats = cls._get_tag_stats(periods[prev_key])
 
             period_data = cls._build_period_data(
-                period_key, periods[period_key], period, prev_tag_stats
+                period_key,
+                periods[period_key],
+                period,
+                prev_tag_stats,
+                todo_sort=todo_sort,
             )
             output_periods.append(period_data)
 
         result = {
+            "version": _SUMMARY_JSON_VERSION,
+            "schema": _SUMMARY_JSON_SCHEMA,
             "period": period,
             "total_entries": len(journal.entries),
             "periods": output_periods,
+            "sort": todo_sort,
         }
         return json.dumps(result, indent=2, ensure_ascii=False)
 
@@ -233,6 +370,7 @@ class SummaryExporter(TextExporter):
         entries: list["Entry"],
         period: str,
         prev_tag_stats: list[tuple[str, int]] | None = None,
+        todo_sort: str | None = None,
     ) -> dict:
         """Build structured dict of data for a single period (for JSON export)."""
         tag_stats = cls._get_tag_stats(entries)
@@ -252,16 +390,18 @@ class SummaryExporter(TextExporter):
                 }
             )
 
-        todo_items = cls._find_todo_items(entries)
-        todos = [
-            {
+        todo_items = cls._find_todo_items(entries, sort=todo_sort)
+        todos = []
+        for item in todo_items:
+            todo_dict = {
                 "date": item["date"].strftime("%Y-%m-%d"),
                 "time": item["date"].strftime("%H:%M"),
                 "title": item["title"],
                 "text": item["text"],
             }
-            for item in todo_items
-        ]
+            if todo_sort == "tag" and "tags" in item:
+                todo_dict["tags"] = item["tags"]
+            todos.append(todo_dict)
 
         daily = [
             {"date": ds, "count": c} for ds, c in cls._get_daily_stats(entries)
@@ -295,12 +435,16 @@ class SummaryExporter(TextExporter):
         }
 
     @classmethod
-    def _generate_summary(cls, journal: "Journal", period: str = "month") -> str:
+    def _generate_summary(
+        cls, journal: "Journal", period: str = "month", todo_sort: str | None = None
+    ) -> str:
         """Generate a periodic review summary.
 
         Args:
             journal: The journal to summarize
             period: 'week' or 'month'
+            todo_sort: Sort order for todo items: 'date' (newest first),
+                       'tag' (alphabetical), or None for default
 
         Returns:
             Formatted summary text
@@ -322,7 +466,11 @@ class SummaryExporter(TextExporter):
                 prev_tag_stats = cls._get_tag_stats(periods[prev_key])
 
             period_summary = cls._generate_period_summary(
-                period_key, periods[period_key], period, prev_tag_stats=prev_tag_stats
+                period_key,
+                periods[period_key],
+                period,
+                prev_tag_stats=prev_tag_stats,
+                todo_sort=todo_sort,
             )
             result_parts.append(period_summary)
 
@@ -363,6 +511,7 @@ class SummaryExporter(TextExporter):
         entries: list["Entry"],
         period: str,
         prev_tag_stats: list[tuple[str, int]] | None = None,
+        todo_sort: str | None = None,
     ) -> str:
         """Generate summary for a single time period.
 
@@ -371,6 +520,7 @@ class SummaryExporter(TextExporter):
             entries: List of entries in this period
             period: 'week' or 'month'
             prev_tag_stats: Tag stats from previous period for trend comparison
+            todo_sort: Sort order for todo items
 
         Returns:
             Formatted summary for the period
@@ -378,7 +528,7 @@ class SummaryExporter(TextExporter):
         entry_count = len(entries)
         starred_count = sum(1 for e in entries if e.starred)
         tag_stats = cls._get_tag_stats(entries)
-        todo_items = cls._find_todo_items(entries)
+        todo_items = cls._find_todo_items(entries, sort=todo_sort)
         top_entries = cls._get_top_entries(entries)
 
         period_label = cls._format_period_label(period_key, period)
@@ -527,29 +677,37 @@ class SummaryExporter(TextExporter):
         return ""
 
     @classmethod
-    def _find_todo_items(cls, entries: list["Entry"]) -> list[dict]:
+    def _find_todo_items(
+        cls, entries: list["Entry"], sort: str | None = None
+    ) -> list[dict]:
         """Find entries that contain TODO/task items.
 
         Args:
             entries: List of journal entries
+            sort: Sort order: 'date' (newest first), 'tag' (alphabetical),
+                  or None for default (date, newest first)
 
         Returns:
-            List of dicts with 'date', 'title', and 'text' keys
+            List of dicts with 'date', 'title', 'text', and optional 'tags' keys
         """
         todo_items = []
 
         for entry in entries:
             full_text = entry.title + " " + entry.body
             if any(pattern.search(full_text) for pattern in cls.TODO_PATTERNS):
-                todo_items.append(
-                    {
-                        "date": entry.date,
-                        "title": entry.title.strip(),
-                        "text": entry.body.strip(),
-                    }
-                )
+                item = {
+                    "date": entry.date,
+                    "title": entry.title.strip(),
+                    "text": entry.body.strip(),
+                }
+                if sort == "tag":
+                    item["tags"] = sorted(list(entry.tags))
+                todo_items.append(item)
 
-        todo_items.sort(key=lambda x: x["date"], reverse=True)
+        if sort == "tag":
+            todo_items.sort(key=lambda x: (x["tags"][0] if x["tags"] else "", x["date"]), reverse=False)
+        else:
+            todo_items.sort(key=lambda x: x["date"], reverse=True)
         return todo_items
 
     @classmethod
