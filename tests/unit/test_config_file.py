@@ -969,3 +969,369 @@ class TestResolveRuntimeConfigBenchmark:
         assert config == snapshot, (
             "resolve_runtime_config mutated the original large config reference"
         )
+
+
+class TestSubprocessMultiPythonEnv:
+    """
+    Verifies that subprocess CLI smoke tests are robust against
+    pyenv / venv / system Python interpreter mismatches.
+    """
+
+    def _run_python_subprocess(self, extra_env=None):
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        env = os.environ.copy()
+        if extra_env:
+            env.update(extra_env)
+        env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
+
+        tmpdir = tempfile.mkdtemp(prefix="jrnl_subp_")
+        script_path = os.path.join(tmpdir, "check_env.py")
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(
+                "import sys\n"
+                "import json\n"
+                "try:\n"
+                "    import jrnl\n"
+                "    jrnl_ver = jrnl.__version__\n"
+                "except Exception:\n"
+                "    jrnl_ver = None\n"
+                "print(json.dumps({\n"
+                "    'executable': sys.executable,\n"
+                "    'version': sys.version,\n"
+                "    'version_info': list(sys.version_info[:3]),\n"
+                "    'has_jrnl': jrnl_ver,\n"
+                "}))\n"
+            )
+
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+        )
+        return result
+
+    def test_subprocess_uses_same_executable_as_parent(self):
+        result = self._run_python_subprocess()
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        info = json.loads(result.stdout)
+        assert info["executable"] == sys.executable, (
+            f"Subprocess interpreter {info['executable']} != "
+            f"parent {sys.executable}"
+        )
+
+    def test_subprocess_python_version_matches_parent(self):
+        result = self._run_python_subprocess()
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        info = json.loads(result.stdout)
+        assert tuple(info["version_info"]) == sys.version_info[:3]
+
+    def test_subprocess_can_import_jrnl(self):
+        result = self._run_python_subprocess()
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        info = json.loads(result.stdout)
+        assert info["has_jrnl"] is not None, "jrnl failed to import in subprocess"
+
+    def test_subprocess_pythonpath_injection_works(self):
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
+
+        result = subprocess.run(
+            [sys.executable, "-c", "import jrnl; print(jrnl.__version__)"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert result.stdout.strip()
+
+    def test_cli_smoke_with_virtualenv_style_env(self):
+        """Simulate a venv-style environment (VIRTUAL_ENV set) and verify CLI works."""
+        tmpdir = tempfile.mkdtemp(prefix="jrnl_venvtest_")
+        config_path = os.path.join(tmpdir, "jrnl.yaml")
+        journal_path = os.path.join(tmpdir, "journal.txt")
+
+        yaml = YAML(typ="safe")
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump({"journals": {"default": journal_path}}, f)
+
+        with open(journal_path, "w", encoding="utf-8") as f:
+            f.write("2023-01-01 10:00 Title\n\nBody.\n\n")
+
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        env = os.environ.copy()
+        env["VIRTUAL_ENV"] = os.path.dirname(sys.executable)
+        env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "jrnl",
+            "--config-file",
+            config_path,
+            "--format",
+            "json",
+        ]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, env=env, cwd=tmpdir, timeout=30
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        parsed = json.loads(result.stdout)
+        assert "entries" in parsed
+
+
+class TestBenchmarkExtendedThresholds:
+    """
+    Stricter performance assertions to catch performance regressions.
+    Uses percentile-based and worst-case checks rather than just averages.
+    """
+
+    NUM_JOURNALS = 50
+    SAMPLE_ITERATIONS = 200
+    WORST_CASE_MS_THRESHOLD = 100.0
+    P95_MS_THRESHOLD = 50.0
+    DEFAULT_JOURNAL_FAST_PATH_MS = 20.0
+
+    def _make_large_config(self):
+        journals = {
+            "default": {
+                "journal": "~/journals/default/journal.txt",
+                "template": "~/templates/default_tpl.txt",
+                "linewrap": 80,
+                "editor": "vim",
+                "tagsymbols": "@",
+                "display_format": "markdown",
+                "encrypt": False,
+            }
+        }
+        for i in range(self.NUM_JOURNALS):
+            journals[f"journal_{i:03d}"] = {
+                "journal": f"~/journals/j_{i:03d}/journal.txt",
+                "template": f"~/templates/tpl_{i:03d}.txt",
+                "linewrap": 80 + i % 10,
+                "editor": "vim" if i % 2 == 0 else "nano",
+                "tagsymbols": "@",
+                "display_format": ["markdown", "json", "yaml", None][i % 4],
+                "encrypt": i % 7 == 0,
+            }
+        return {
+            "journals": journals,
+            "linewrap": 80,
+            "tagsymbols": "@",
+            "display_format": "markdown",
+            "editor": None,
+            "template": "~/global_template.txt",
+        }
+
+    def test_worst_case_latency_under_threshold(self):
+        config = self._make_large_config()
+        times = []
+
+        for i in range(self.SAMPLE_ITERATIONS):
+            args = parse_args([f"journal_{i % self.NUM_JOURNALS:03d}"])
+            start = time_mod.perf_counter()
+            resolve_runtime_config(args, config)
+            elapsed_ms = (time_mod.perf_counter() - start) * 1000
+            times.append(elapsed_ms)
+
+        worst = max(times)
+        assert worst < self.WORST_CASE_MS_THRESHOLD, (
+            f"Worst-case resolve took {worst:.2f}ms, "
+            f"threshold {self.WORST_CASE_MS_THRESHOLD}ms"
+        )
+
+    def test_p95_latency_under_threshold(self):
+        config = self._make_large_config()
+        times = []
+
+        for i in range(self.SAMPLE_ITERATIONS):
+            args = parse_args([f"journal_{i % self.NUM_JOURNALS:03d}"])
+            start = time_mod.perf_counter()
+            resolve_runtime_config(args, config)
+            elapsed_ms = (time_mod.perf_counter() - start) * 1000
+            times.append(elapsed_ms)
+
+        sorted_times = sorted(times)
+        p95_idx = int(len(sorted_times) * 0.95)
+        p95 = sorted_times[min(p95_idx, len(sorted_times) - 1)]
+        assert p95 < self.P95_MS_THRESHOLD, (
+            f"P95 resolve took {p95:.2f}ms, "
+            f"threshold {self.P95_MS_THRESHOLD}ms"
+        )
+
+    def test_default_journal_fast_path_performance(self):
+        config = self._make_large_config()
+        args = parse_args([])
+
+        times = []
+        for _ in range(100):
+            start = time_mod.perf_counter()
+            resolve_runtime_config(args, config)
+            elapsed_ms = (time_mod.perf_counter() - start) * 1000
+            times.append(elapsed_ms)
+
+        avg = sum(times) / len(times)
+        assert avg < self.DEFAULT_JOURNAL_FAST_PATH_MS, (
+            f"Default journal avg {avg:.2f}ms exceeds "
+            f"{self.DEFAULT_JOURNAL_FAST_PATH_MS}ms fast-path budget"
+        )
+
+    def test_first_call_no_standalone_slowdown(self):
+        """Regression: first call shouldn't be 10x slower due to lazy init."""
+        config = self._make_large_config()
+
+        first_start = time_mod.perf_counter()
+        resolve_runtime_config(parse_args(["journal_025"]), config)
+        first_ms = (time_mod.perf_counter() - first_start) * 1000
+
+        rest_times = []
+        for i in range(1, 50):
+            args = parse_args([f"journal_{i % self.NUM_JOURNALS:03d}"])
+            start = time_mod.perf_counter()
+            resolve_runtime_config(args, config)
+            rest_times.append((time_mod.perf_counter() - start) * 1000)
+
+        avg_rest = sum(rest_times) / len(rest_times)
+        ratio = first_ms / avg_rest if avg_rest > 0 else 999
+
+        assert ratio < 5.0, (
+            f"First call ({first_ms:.2f}ms) is {ratio:.1f}x slower than "
+            f"avg rest ({avg_rest:.2f}ms) — possible lazy-init regression"
+        )
+
+
+class TestConfigErrorFallbackPaths:
+    """
+    Tests for graceful handling of broken / malformed configurations.
+    Covers YAML parse errors and missing environment variables.
+    """
+
+    def test_yaml_syntax_error_raises_during_load(self):
+        tmpdir = tempfile.mkdtemp(prefix="jrnl_broken_yaml_")
+        config_path = os.path.join(tmpdir, "broken.yaml")
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write("journals:\n  default: ~/j.txt\n  invalid: [unclosed\n")
+
+        from jrnl.config import load_config
+
+        with pytest.raises(Exception):
+            load_config(config_path)
+
+    def test_yaml_empty_file_loads_as_none(self):
+        tmpdir = tempfile.mkdtemp(prefix="jrnl_empty_yaml_")
+        config_path = os.path.join(tmpdir, "empty.yaml")
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write("")
+
+        from jrnl.config import load_config
+
+        result = load_config(config_path)
+        assert result is None or result == {}
+
+    def test_yaml_not_a_dict_returns_raw(self):
+        tmpdir = tempfile.mkdtemp(prefix="jrnl_scalar_yaml_")
+        config_path = os.path.join(tmpdir, "scalar.yaml")
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write("just a string\n")
+
+        from jrnl.config import load_config
+
+        result = load_config(config_path)
+        assert isinstance(result, str) or result is None
+
+    def test_expand_path_missing_env_var_preserved(self):
+        """Missing env vars are kept as-is by os.path.expandvars (not an error)."""
+        config = {
+            "journals": {
+                "default": {"journal": "$NONEXISTENT_VAR_12345/journal.txt"},
+            }
+        }
+        result = expand_config_paths(config)
+        assert "$NONEXISTENT_VAR_12345" in result["journals"]["default"]["journal"]
+
+    def test_expand_path_mixed_existing_and_missing_vars(self):
+        with mock.patch.dict(os.environ, {"EXISTING_VAR": "/existing/path"}):
+            config = {
+                "journals": {
+                    "default": {
+                        "journal": "$EXISTING_VAR/$MISSING_VAR/journal.txt"
+                    },
+                }
+            }
+            result = expand_config_paths(config)
+            path = result["journals"]["default"]["journal"]
+            assert "/existing/path" in path
+            assert "$MISSING_VAR" in path
+
+    def test_expand_path_nonexistent_tilde_user(self):
+        """~nonexistentuser/path should be preserved by expanduser."""
+        import pwd
+
+        try:
+            pwd.getpwnam("definitely_no_such_user_xyz")
+            user_exists = True
+        except KeyError:
+            user_exists = False
+
+        if user_exists:
+            pytest.skip("Test user unexpectedly exists on this system")
+
+        config = {
+            "journals": {
+                "default": {"journal": "~definitely_no_such_user_xyz/journal.txt"},
+            }
+        }
+        result = expand_config_paths(config)
+        path = result["journals"]["default"]["journal"]
+        assert "~definitely_no_such_user_xyz" in path
+
+    def test_resolve_runtime_with_invalid_journal_still_expands_paths(self):
+        """Path expansion runs before journal validation."""
+        config = {
+            "journals": {
+                "work": {"journal": "~/work.txt"},
+                "notes": {"journal": "$MISSING_VAR/notes.txt"},
+            }
+        }
+
+        expanded = expand_config_paths(config)
+        assert expanded["journals"]["work"]["journal"] == os.path.expanduser(
+            "~/work.txt"
+        )
+        assert "$MISSING_VAR" in expanded["journals"]["notes"]["journal"]
+
+        args = parse_args([])
+        with pytest.raises(JrnlException):
+            resolve_runtime_config(args, config)
+
+    def test_duplicate_keys_warning_fallback(self):
+        """Duplicate YAML keys trigger warning but still load successfully."""
+        from jrnl.config import load_config
+
+        tmpdir = tempfile.mkdtemp(prefix="jrnl_dupkeys_")
+        config_path = os.path.join(tmpdir, "dupkeys.yaml")
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write(
+                "journals:\n"
+                "  default: ~/first.txt\n"
+                "  default: ~/second.txt\n"
+            )
+
+        with mock.patch("jrnl.config.print_msg") as mock_print:
+            result = load_config(config_path)
+            mock_print.assert_called_once()
+            assert result is not None
+            assert "default" in result["journals"]
