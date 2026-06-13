@@ -2,6 +2,7 @@
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
 import argparse
+import copy
 import logging
 import os
 from typing import Any
@@ -240,8 +241,11 @@ def expand_config_paths(config: dict) -> dict:
     - All journal paths in config["journals"]
 
     Paths are expanded using expand_path (~ and environment variables).
+
+    Uses deepcopy so that nested dicts inside config["journals"]
+    are not mutated in the caller's reference.
     """
-    config = config.copy()
+    config = copy.deepcopy(config)
 
     if isinstance(config.get("journal"), str):
         config["journal"] = expand_path(config["journal"])
