@@ -2,13 +2,27 @@
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
 import datetime
+import json
+import os
 import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from unittest import mock
 
 import pytest
 
 from jrnl.journals.Entry import Entry
 from jrnl.journals.Journal import Journal
 from jrnl.plugins.summary_exporter import SummaryExporter
+from jrnl.plugins.summary_exporter import SummaryJSONExporter
+from jrnl.plugins.summary_exporter import _detect_language
+
+
+@pytest.fixture(autouse=True)
+def force_zh_lang(monkeypatch):
+    monkeypatch.setenv("JRNL_LANG", "zh_CN.UTF-8")
 
 
 @pytest.fixture
@@ -263,18 +277,96 @@ class TestFormatTagTrend:
 
 
 class TestFormatPeriodLabel:
-    def test_month_label(self):
+    def test_month_label_zh(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
         result = SummaryExporter._format_period_label("2024-03", "month")
         assert result == "2024年 3月"
 
-    def test_week_label(self):
+    def test_month_label_en(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        result = SummaryExporter._format_period_label("2024-03", "month")
+        assert result == "2024 March"
+
+    def test_week_label_zh(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
         result = SummaryExporter._format_period_label("2024-W02", "week")
         assert "2024年" in result
         assert "第2周" in result
 
-    def test_month_label_december(self):
+    def test_week_label_en(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        result = SummaryExporter._format_period_label("2024-W02", "week")
+        assert "Week 2" in result
+
+    def test_month_label_december_zh(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
         result = SummaryExporter._format_period_label("2024-12", "month")
         assert result == "2024年 12月"
+
+    def test_month_label_december_en(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        result = SummaryExporter._format_period_label("2024-12", "month")
+        assert result == "2024 December"
+
+
+class TestI18n:
+    def test_detect_language_zh_env(self, monkeypatch):
+        monkeypatch.delenv("JRNL_LANG", raising=False)
+        monkeypatch.delenv("LANG", raising=False)
+        monkeypatch.setenv("JRNL_LANG", "zh_CN")
+        assert _detect_language() == "zh"
+
+    def test_detect_language_en_env(self, monkeypatch):
+        monkeypatch.delenv("JRNL_LANG", raising=False)
+        monkeypatch.delenv("LANG", raising=False)
+        monkeypatch.setenv("JRNL_LANG", "en_US")
+        assert _detect_language() == "en"
+
+    def test_detect_language_from_lang_env(self, monkeypatch):
+        monkeypatch.delenv("JRNL_LANG", raising=False)
+        monkeypatch.delenv("LANG", raising=False)
+        monkeypatch.setenv("LANG", "zh_TW.UTF-8")
+        assert _detect_language() == "zh"
+
+    def test_detect_language_default_en(self, monkeypatch):
+        monkeypatch.delenv("JRNL_LANG", raising=False)
+        monkeypatch.delenv("LANG", raising=False)
+        assert _detect_language() == "en"
+
+    def test_t_output_zh(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
+        assert SummaryExporter._t("review_title") == "回顾摘要"
+        assert SummaryExporter._t("overview") == "总体统计"
+
+    def test_t_output_en(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        assert SummaryExporter._t("review_title") == "Periodic Review Summary"
+        assert SummaryExporter._t("overview") == "Overview Statistics"
+
+    def test_t_no_entries_found_zh(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
+        result = SummaryExporter._t("no_entries_found")
+        assert "未找到条目" in result
+
+    def test_t_no_entries_found_en(self, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        result = SummaryExporter._t("no_entries_found")
+        assert "No entries found" in result
+
+    def test_summary_output_zh(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
+        journal.entries = [_make_entry(journal, "2024-01-05 09:00", "entry @work")]
+        result = SummaryExporter._generate_summary(journal, period="month")
+        assert "回顾摘要" in result
+        assert "总体统计" in result
+
+    def test_summary_output_en(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        journal.entries = [_make_entry(journal, "2024-01-05 09:00", "entry @work")]
+        result = SummaryExporter._generate_summary(journal, period="month")
+        assert "Periodic Review Summary" in result
+        assert "Overview Statistics" in result
+        assert "Tag Activity Ranking" in result
 
 
 class TestGetDailyStats:
@@ -320,12 +412,14 @@ class TestGetTopEntries:
 
 
 class TestGenerateSummary:
-    def test_empty_journal(self, journal):
+    def test_empty_journal(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
         journal.entries = []
         result = SummaryExporter._generate_summary(journal, period="month")
         assert "No entries found" in result
 
-    def test_summary_contains_sections(self, journal):
+    def test_summary_contains_sections_zh(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
         e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: work @work")
         e2 = _make_entry(journal, "2024-01-06 14:30", "read @personal", starred=True)
         journal.entries = [e1, e2]
@@ -337,7 +431,21 @@ class TestGenerateSummary:
         assert "标签活跃度排行" in result
         assert "未完成事项汇总" in result
 
-    def test_summary_month_period_key(self, journal):
+    def test_summary_contains_sections_en(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "en")
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: work @work")
+        e2 = _make_entry(journal, "2024-01-06 14:30", "read @personal", starred=True)
+        journal.entries = [e1, e2]
+
+        result = SummaryExporter._generate_summary(journal, period="month")
+
+        assert "Periodic Review Summary" in result
+        assert "Overview Statistics" in result
+        assert "Tag Activity Ranking" in result
+        assert "Outstanding Todo Items" in result
+
+    def test_summary_month_period_key_zh(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
         e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
         e2 = _make_entry(journal, "2024-02-10 09:00", "entry @personal")
         journal.entries = [e1, e2]
@@ -347,7 +455,8 @@ class TestGenerateSummary:
         assert "2024年 1月" in result
         assert "2024年 2月" in result
 
-    def test_summary_week_period_key(self, journal):
+    def test_summary_week_period_key_zh(self, journal, monkeypatch):
+        monkeypatch.setenv("JRNL_LANG", "zh")
         e1 = _make_entry(journal, "2024-01-01 09:00", "entry @work")
         journal.entries = [e1]
 
@@ -379,15 +488,90 @@ class TestGenerateSummary:
         assert "@personal" in result
 
 
+class TestSummaryJSON:
+    def test_export_journal_json_empty(self, journal):
+        journal.entries = []
+        result = SummaryExporter.export_journal_json(journal, period="month")
+        data = json.loads(result)
+        assert data["total_entries"] == 0
+        assert data["periods"] == []
+
+    def test_export_journal_json_structure(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: task @work")
+        journal.entries = [e1]
+
+        result = SummaryExporter.export_journal_json(journal, period="month")
+        data = json.loads(result)
+
+        assert data["period"] == "month"
+        assert data["total_entries"] == 1
+        assert len(data["periods"]) == 1
+
+        period = data["periods"][0]
+        assert "period_key" in period
+        assert "label" in period
+        assert "label_en" in period
+        assert "stats" in period
+        assert period["stats"]["entries"] == 1
+        assert period["stats"]["todos"] == 1
+        assert "tags" in period
+        assert "todos" in period
+        assert "featured_entries" in period
+        assert "daily_distribution" in period
+
+    def test_export_journal_json_tag_trend(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
+        e2 = _make_entry(journal, "2024-02-05 09:00", "entry @work @hobby")
+        journal.entries = [e1, e2]
+
+        result = SummaryExporter.export_journal_json(journal, period="month")
+        data = json.loads(result)
+
+        assert len(data["periods"]) == 2
+        latest = data["periods"][0]
+        latest_tags = {t["tag"]: t for t in latest["tags"]}
+        assert "@hobby" in latest_tags
+        assert latest_tags["@hobby"]["trend"] == 1
+        assert latest_tags["@hobby"]["previous_count"] == 0
+
+    def test_export_journal_json_no_prev_period_trend_is_null(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
+        journal.entries = [e1]
+
+        result = SummaryExporter.export_journal_json(journal, period="month")
+        data = json.loads(result)
+        period = data["periods"][0]
+
+        for tag in period["tags"]:
+            assert tag["previous_count"] is None
+            assert tag["trend"] is None
+
+    def test_summary_json_exporter_names(self):
+        assert "summary_json" in SummaryJSONExporter.names
+        assert SummaryJSONExporter.extension == "json"
+
+    def test_summary_json_exporter_export_journal(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
+        journal.entries = [e1]
+
+        result = SummaryJSONExporter.export_journal(journal)
+        data = json.loads(result)
+        assert data["period"] == "month"
+        assert data["total_entries"] == 1
+
+
 class TestSummaryControllerIntegration:
     @pytest.fixture
     def default_config(self):
         return {"display_format": None}
 
-    def test_controller_summary_with_parse_args(self, journal, capsys, default_config):
+    def test_controller_summary_with_parse_args(
+        self, journal, capsys, default_config, monkeypatch
+    ):
         from jrnl.args import parse_args
         from jrnl.controller import _display_search_results
 
+        monkeypatch.setenv("JRNL_LANG", "zh")
         journal.new_entry("TODO: first task @work")
         journal.new_entry("second entry @personal")
 
@@ -400,10 +584,13 @@ class TestSummaryControllerIntegration:
         assert "@personal" in captured.out
         assert "总体统计" in captured.out
 
-    def test_controller_summary_week_period(self, journal, capsys, default_config):
+    def test_controller_summary_week_period(
+        self, journal, capsys, default_config, monkeypatch
+    ):
         from jrnl.args import parse_args
         from jrnl.controller import _display_search_results
 
+        monkeypatch.setenv("JRNL_LANG", "zh")
         journal.new_entry("TODO: task @work")
 
         mock_args = parse_args(["--summary", "--summary-period", "week"])
@@ -414,11 +601,12 @@ class TestSummaryControllerIntegration:
         assert "周" in captured.out
 
     def test_controller_summary_alias_format_summary(
-        self, journal, capsys, default_config
+        self, journal, capsys, default_config, monkeypatch
     ):
         from jrnl.args import parse_args
         from jrnl.controller import _display_search_results
 
+        monkeypatch.setenv("JRNL_LANG", "zh")
         journal.new_entry("entry @work")
 
         mock_args = parse_args(["--format", "summary"])
@@ -445,3 +633,269 @@ class TestSummaryControllerIntegration:
 
         captured = capsys.readouterr()
         assert "(+" in captured.out or "(-" in captured.out
+
+    def test_controller_summary_json_format(
+        self, journal, capsys, default_config
+    ):
+        from jrnl.args import parse_args
+        from jrnl.controller import _display_search_results
+
+        e1 = _make_entry(journal, "2024-01-05 09:00", "TODO: task @work")
+        journal.entries = [e1]
+
+        mock_args = parse_args(["--format", "summary_json"])
+        _display_search_results(mock_args, journal, config=default_config)
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["period"] == "month"
+        assert data["total_entries"] == 1
+
+
+class TestSubprocessSmoke:
+    @pytest.fixture
+    def test_env(self):
+        tmpdir = tempfile.mkdtemp()
+        journal_path = os.path.join(tmpdir, "test.journal")
+        config_path = os.path.join(tmpdir, "jrnl.yaml")
+
+        config_content = (
+            "journals:\n"
+            "  default:\n"
+            f"    journal: {journal_path}\n"
+            "    encrypt: false\n"
+            "    tagsymbols: '@'\n"
+            "    timeformat: '%Y-%m-%d %H:%M'\n"
+            "    highlight: false\n"
+            "    linewrap: false\n"
+        )
+        with open(config_path, "w") as f:
+            f.write(config_content)
+
+        journal_content = (
+            "[2024-01-05 09:00] TODO: code review @work\n\n"
+            "[2024-01-06 14:30] Read book @personal @reading *\n\n"
+            "[2024-02-05 10:00] * [ ] Plan Q2 goals @work @project\n"
+        )
+        with open(journal_path, "w") as f:
+            f.write(journal_content)
+
+        yield {
+            "tmpdir": tmpdir,
+            "config_path": config_path,
+            "journal_path": journal_path,
+        }
+
+        import shutil
+
+        shutil.rmtree(tmpdir)
+
+    def test_subprocess_summary_month(self, test_env):
+        env = os.environ.copy()
+        env["JRNL_LANG"] = "en"
+        env["PYTHONPATH"] = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jrnl",
+                "--config-file",
+                test_env["config_path"],
+                "--summary",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "Periodic Review Summary" in result.stdout
+        assert "@work" in result.stdout
+
+    def test_subprocess_summary_week(self, test_env):
+        env = os.environ.copy()
+        env["JRNL_LANG"] = "en"
+        env["PYTHONPATH"] = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jrnl",
+                "--config-file",
+                test_env["config_path"],
+                "--summary",
+                "--summary-period",
+                "week",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "Week" in result.stdout
+
+    def test_subprocess_summary_json(self, test_env):
+        env = os.environ.copy()
+        env["JRNL_LANG"] = "en"
+        env["PYTHONPATH"] = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jrnl",
+                "--config-file",
+                test_env["config_path"],
+                "--format",
+                "summary_json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads(result.stdout)
+        assert "period" in data
+        assert "periods" in data
+        assert data["total_entries"] == 3
+
+    def test_subprocess_summary_zh_output(self, test_env):
+        env = os.environ.copy()
+        env["JRNL_LANG"] = "zh_CN.UTF-8"
+        env["PYTHONPATH"] = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jrnl",
+                "--config-file",
+                test_env["config_path"],
+                "--summary",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "回顾摘要" in result.stdout
+        assert "总体统计" in result.stdout
+        assert "@work" in result.stdout
+
+    def test_subprocess_summary_format_alias(self, test_env):
+        env = os.environ.copy()
+        env["JRNL_LANG"] = "en"
+        env["PYTHONPATH"] = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jrnl",
+                "--config-file",
+                test_env["config_path"],
+                "--format",
+                "summary",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "Periodic Review Summary" in result.stdout
+        assert "@work" in result.stdout
+
+    def test_subprocess_summary_json_empty_journal(self):
+        tmpdir = tempfile.mkdtemp()
+        journal_path = os.path.join(tmpdir, "empty.journal")
+        config_path = os.path.join(tmpdir, "jrnl.yaml")
+
+        config_content = (
+            "journals:\n"
+            "  default:\n"
+            f"    journal: {journal_path}\n"
+            "    encrypt: false\n"
+            "    tagsymbols: '@'\n"
+            "    timeformat: '%Y-%m-%d %H:%M'\n"
+            "    highlight: false\n"
+            "    linewrap: false\n"
+        )
+        with open(config_path, "w") as f:
+            f.write(config_content)
+
+        with open(journal_path, "w") as f:
+            f.write("")
+
+        env = os.environ.copy()
+        env["JRNL_LANG"] = "en"
+        env["PYTHONPATH"] = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "jrnl",
+                    "--config-file",
+                    config_path,
+                    "--format",
+                    "summary_json",
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+        finally:
+            import shutil
+
+            shutil.rmtree(tmpdir)
+
+    def test_subprocess_summary_json_period_week(self, test_env):
+        env = os.environ.copy()
+        env["JRNL_LANG"] = "en"
+        env["PYTHONPATH"] = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jrnl",
+                "--config-file",
+                test_env["config_path"],
+                "--format",
+                "summary_json",
+                "--summary-period",
+                "week",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["period"] == "week"
+        assert data["total_entries"] == 3
+        assert len(data["periods"]) >= 1
