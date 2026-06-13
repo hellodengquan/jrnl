@@ -25,7 +25,7 @@ class SummaryExporter(TextExporter):
         re.compile(r"未完成"),
         re.compile(r"\bTBD\b:?", re.IGNORECASE),
         re.compile(r"待完成"),
-        re.compile(r"^- \[[ x]\]\s", re.MULTILINE),
+        re.compile(r"^\s*[-*] \[[ x]\]\s", re.MULTILINE),
     ]
 
     @classmethod
@@ -145,10 +145,13 @@ class SummaryExporter(TextExporter):
 
         if tag_stats:
             lines.append("🏷️  标签活跃度排行")
+            has_prev = prev_tag_stats is not None
             prev_tag_dict = dict(prev_tag_stats) if prev_tag_stats else {}
             for i, (tag, count) in enumerate(tag_stats[:10], 1):
                 bar = "█" * min(count, 20)
-                trend = cls._format_tag_trend(count, prev_tag_dict.get(tag, 0))
+                trend = cls._format_tag_trend(
+                    count, prev_tag_dict.get(tag, 0), has_previous_period=has_prev
+                )
                 lines.append(f"  {i:2d}. {tag:<20} {count:3d}次 {bar}{trend}")
             lines.append("")
 
@@ -220,23 +223,27 @@ class SummaryExporter(TextExporter):
         return tag_counter.most_common()
 
     @classmethod
-    def _format_tag_trend(cls, current: int, previous: int) -> str:
+    def _format_tag_trend(
+        cls, current: int, previous: int, has_previous_period: bool = True
+    ) -> str:
         """Format a trend indicator comparing current count to previous period.
 
         Args:
             current: Current period tag count
             previous: Previous period tag count
+            has_previous_period: Whether there is a previous period to compare against
 
         Returns:
             Formatted trend string (e.g. ' (+2)', ' (-1)', ' (new)', or '')
+            Returns empty string when there is no previous period.
         """
+        if not has_previous_period:
+            return ""
         diff = current - previous
         if diff > 0:
             return f" (+{diff})"
         elif diff < 0:
             return f" ({diff})"
-        elif previous == 0 and current > 0:
-            return " (new)"
         return ""
 
     @classmethod

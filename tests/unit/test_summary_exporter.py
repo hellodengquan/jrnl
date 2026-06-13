@@ -95,8 +95,15 @@ class TestTodoPatterns:
             ("- [ ] Write unit tests", True),
             ("- [x] Completed task", True),
             ("- [ ]  Buy milk", True),
-            (" - [ ] not at line start", False),
+            ("* [ ] Use star bullet", True),
+            ("* [x] Star bullet done", True),
+            ("  - [ ] Indented checkbox", True),
+            ("    * [ ] Heavily indented", True),
+            ("* [ ]  Buy milk", True),
+            (" - [ ] space then dash", True),
             ("Check the [ ] box", False),
+            ("Just brackets [ ] in text", False),
+            ("- [] missing space", False),
         ],
     )
     def test_todo_patterns_match(self, text, should_match):
@@ -121,6 +128,39 @@ class TestTodoPatterns:
             journal,
             "2024-01-10 09:00",
             "Task list\n- [ ] Write unit tests\n- [x] Setup project\n- [ ] Deploy",
+        )
+
+        result = SummaryExporter._find_todo_items([e1])
+
+        assert len(result) == 1
+
+    def test_find_todo_items_star_bullet_checkbox(self, journal):
+        e1 = _make_entry(
+            journal,
+            "2024-01-10 09:00",
+            "Star list\n* [ ] Task one\n* [x] Task two\n* [ ] Task three",
+        )
+
+        result = SummaryExporter._find_todo_items([e1])
+
+        assert len(result) == 1
+
+    def test_find_todo_items_indented_checkbox(self, journal):
+        e1 = _make_entry(
+            journal,
+            "2024-01-10 09:00",
+            "Nested list\n  - [ ] Indented task\n    * [ ] Deep task",
+        )
+
+        result = SummaryExporter._find_todo_items([e1])
+
+        assert len(result) == 1
+
+    def test_find_todo_items_mixed_bullets(self, journal):
+        e1 = _make_entry(
+            journal,
+            "2024-01-10 09:00",
+            "Mixed\n- [ ] dash task\n* [ ] star task\n  - [ ] indented",
         )
 
         result = SummaryExporter._find_todo_items([e1])
@@ -209,6 +249,17 @@ class TestFormatTagTrend:
 
     def test_zero_vs_zero(self):
         assert SummaryExporter._format_tag_trend(0, 0) == ""
+
+    def test_no_previous_period_increase_returns_empty(self):
+        assert SummaryExporter._format_tag_trend(5, 0, has_previous_period=False) == ""
+
+    def test_no_previous_period_zero_returns_empty(self):
+        assert SummaryExporter._format_tag_trend(0, 0, has_previous_period=False) == ""
+
+    def test_no_previous_period_any_value_returns_empty(self):
+        assert (
+            SummaryExporter._format_tag_trend(100, 0, has_previous_period=False) == ""
+        )
 
 
 class TestFormatPeriodLabel:
@@ -306,12 +357,91 @@ class TestGenerateSummary:
         assert "周" in result
 
     def test_summary_tag_trend_with_prev_period(self, journal):
-        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work @work")
-        e2 = _make_entry(journal, "2024-01-06 09:00", "entry @work")
-        e3 = _make_entry(journal, "2024-02-05 09:00", "entry @work @work @work")
-        e4 = _make_entry(journal, "2024-02-06 09:00", "entry @work @work")
+        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
+        e2 = _make_entry(journal, "2024-01-06 09:00", "entry @work @personal")
+        e3 = _make_entry(journal, "2024-02-05 09:00", "entry @work @project @hobby")
+        e4 = _make_entry(journal, "2024-02-06 09:00", "entry @work @project")
         journal.entries = [e1, e2, e3, e4]
 
         result = SummaryExporter._generate_summary(journal, period="month")
 
         assert "(+" in result or "(-" in result
+
+    def test_summary_first_period_no_trend_parentheses(self, journal):
+        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work @personal @hobby")
+        journal.entries = [e1]
+
+        result = SummaryExporter._generate_summary(journal, period="month")
+
+        assert "(+" not in result
+        assert "(-" not in result
+        assert "@work" in result
+        assert "@personal" in result
+
+
+class TestSummaryControllerIntegration:
+    @pytest.fixture
+    def default_config(self):
+        return {"display_format": None}
+
+    def test_controller_summary_with_parse_args(self, journal, capsys, default_config):
+        from jrnl.args import parse_args
+        from jrnl.controller import _display_search_results
+
+        journal.new_entry("TODO: first task @work")
+        journal.new_entry("second entry @personal")
+
+        mock_args = parse_args(["--summary"])
+        _display_search_results(mock_args, journal, config=default_config)
+
+        captured = capsys.readouterr()
+        assert "回顾摘要" in captured.out
+        assert "@work" in captured.out
+        assert "@personal" in captured.out
+        assert "总体统计" in captured.out
+
+    def test_controller_summary_week_period(self, journal, capsys, default_config):
+        from jrnl.args import parse_args
+        from jrnl.controller import _display_search_results
+
+        journal.new_entry("TODO: task @work")
+
+        mock_args = parse_args(["--summary", "--summary-period", "week"])
+        _display_search_results(mock_args, journal, config=default_config)
+
+        captured = capsys.readouterr()
+        assert "第" in captured.out
+        assert "周" in captured.out
+
+    def test_controller_summary_alias_format_summary(
+        self, journal, capsys, default_config
+    ):
+        from jrnl.args import parse_args
+        from jrnl.controller import _display_search_results
+
+        journal.new_entry("entry @work")
+
+        mock_args = parse_args(["--format", "summary"])
+        _display_search_results(mock_args, journal, config=default_config)
+
+        captured = capsys.readouterr()
+        assert "回顾摘要" in captured.out
+        assert "@work" in captured.out
+
+    def test_controller_summary_trend_between_periods(
+        self, journal, capsys, default_config
+    ):
+        from jrnl.args import parse_args
+        from jrnl.controller import _display_search_results
+
+        e1 = _make_entry(journal, "2024-01-05 09:00", "entry @work")
+        e2 = _make_entry(
+            journal, "2024-02-05 09:00", "entry @work @project @hobby"
+        )
+        journal.entries = [e1, e2]
+
+        mock_args = parse_args(["--summary", "--summary-period", "month"])
+        _display_search_results(mock_args, journal, config=default_config)
+
+        captured = capsys.readouterr()
+        assert "(+" in captured.out or "(-" in captured.out
