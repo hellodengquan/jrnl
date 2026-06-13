@@ -303,28 +303,47 @@ def resolve_display_format(
     1. --format / --export CLI argument (args.export)
     2. --tags CLI flag (implies 'tags' format)
     3. config["display_format"]
-    4. None (default pretty print)
+    4. False (default pretty print)
+
+    Handles both None and False as "not set" values for args.export.
     """
-    if args.tags:
-        args.export = args.export or "tags"
-    else:
-        args.export = args.export or config.get("display_format")
+    export_is_set = bool(args.export)
+
+    if args.tags and not export_is_set:
+        args.export = "tags"
+    elif not export_is_set:
+        args.export = config.get("display_format") or False
 
     logging.debug("Resolved display format: %s", args.export)
     return args
 
 
 def resolve_runtime_config(
-    args: argparse.Namespace, config: dict
+    args: argparse.Namespace,
+    config: dict,
+    *,
+    resolve_journal: bool = True,
+    scope: bool = True,
+    resolve_display: bool = True,
 ) -> tuple[argparse.Namespace, dict]:
     """
     Unified entry point for resolving all runtime configuration.
 
     This consolidates the previously scattered logic:
     1. Expand all paths in the config
-    2. Resolve the journal name from args
-    3. Scope the config to the selected journal
-    4. Resolve display format with fallback
+    2. Resolve the journal name from args (optional)
+    3. Validate the journal name (optional)
+    4. Scope the config to the selected journal (optional)
+    5. Expand paths again after scoping
+    6. Resolve display format with fallback (optional)
+
+    Args:
+        args: Parsed command line arguments
+        config: Loaded configuration dict
+        resolve_journal: Whether to parse and validate journal name from args
+        scope: Whether to scope config to the selected journal
+            (requires resolve_journal)
+        resolve_display: Whether to resolve display format with config fallback
 
     Returns a tuple of (updated_args, scoped_and_expanded_config).
     """
@@ -332,15 +351,16 @@ def resolve_runtime_config(
 
     config = expand_config_paths(config)
 
-    args = resolve_journal_name(args, config)
+    if resolve_journal:
+        args = resolve_journal_name(args, config)
+        validate_journal_name(args.journal_name, config)
 
-    validate_journal_name(args.journal_name, config)
+    if scope and resolve_journal:
+        config = scope_config(config, args.journal_name)
+        config = expand_config_paths(config)
 
-    config = scope_config(config, args.journal_name)
-
-    config = expand_config_paths(config)
-
-    args = resolve_display_format(args, config)
+    if resolve_display:
+        args = resolve_display_format(args, config)
 
     logging.debug("Unified runtime config resolution complete")
     return args, config

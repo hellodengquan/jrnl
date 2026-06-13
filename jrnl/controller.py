@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from jrnl import install
 from jrnl import plugins
 from jrnl import time
+from jrnl.commands import postconfig_list
 from jrnl.config import DEFAULT_JOURNAL_KEY
 from jrnl.config import get_config_path
 from jrnl.config import resolve_runtime_config
@@ -53,8 +54,17 @@ def run(args: "Namespace"):
     # Apply config overrides
     config = apply_overrides(args, config)
 
-    # Unified config resolution: path expansion, journal name, scoping, display format
-    args, config = resolve_runtime_config(args, config)
+    # Determine which resolution steps are needed
+    # postconfig_list only needs path expansion (no journal resolution or scoping)
+    # because it lists all journals and has its own format handling
+    is_list_cmd = args.postconfig_cmd is postconfig_list
+    args, config = resolve_runtime_config(
+        args,
+        config,
+        resolve_journal=not is_list_cmd,
+        scope=not is_list_cmd,
+        resolve_display=not is_list_cmd,
+    )
 
     # Run post-config command now that config is ready
     if callable(args.postconfig_cmd):
