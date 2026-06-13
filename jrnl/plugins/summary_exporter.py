@@ -20,11 +20,12 @@ class SummaryExporter(TextExporter):
     extension = "txt"
 
     TODO_PATTERNS = [
-        re.compile(r"\bTODO\b", re.IGNORECASE),
-        re.compile(r"\b待办\b"),
-        re.compile(r"\b未完成\b"),
-        re.compile(r"\bTBD\b", re.IGNORECASE),
-        re.compile(r"\b待完成\b"),
+        re.compile(r"\bTODO\b:?", re.IGNORECASE),
+        re.compile(r"待办"),
+        re.compile(r"未完成"),
+        re.compile(r"\bTBD\b:?", re.IGNORECASE),
+        re.compile(r"待完成"),
+        re.compile(r"^- \[[ x]\]\s", re.MULTILINE),
     ]
 
     @classmethod
@@ -57,11 +58,18 @@ class SummaryExporter(TextExporter):
         entries = journal.entries
         periods = cls._group_by_period(entries, period)
 
+        sorted_keys = sorted(periods.keys(), reverse=True)
+
         result_parts = []
 
-        for period_key, period_entries in sorted(periods.items(), reverse=True):
+        for idx, period_key in enumerate(sorted_keys):
+            prev_tag_stats = None
+            if idx + 1 < len(sorted_keys):
+                prev_key = sorted_keys[idx + 1]
+                prev_tag_stats = cls._get_tag_stats(periods[prev_key])
+
             period_summary = cls._generate_period_summary(
-                period_key, period_entries, period
+                period_key, periods[period_key], period, prev_tag_stats=prev_tag_stats
             )
             result_parts.append(period_summary)
 
@@ -97,7 +105,11 @@ class SummaryExporter(TextExporter):
 
     @classmethod
     def _generate_period_summary(
-        cls, period_key: str, entries: list["Entry"], period: str
+        cls,
+        period_key: str,
+        entries: list["Entry"],
+        period: str,
+        prev_tag_stats: list[tuple[str, int]] | None = None,
     ) -> str:
         """Generate summary for a single time period.
 
@@ -105,6 +117,7 @@ class SummaryExporter(TextExporter):
             period_key: Identifier for the time period
             entries: List of entries in this period
             period: 'week' or 'month'
+            prev_tag_stats: Tag stats from previous period for trend comparison
 
         Returns:
             Formatted summary for the period
@@ -132,9 +145,11 @@ class SummaryExporter(TextExporter):
 
         if tag_stats:
             lines.append("🏷️  标签活跃度排行")
+            prev_tag_dict = dict(prev_tag_stats) if prev_tag_stats else {}
             for i, (tag, count) in enumerate(tag_stats[:10], 1):
                 bar = "█" * min(count, 20)
-                lines.append(f"  {i:2d}. {tag:<20} {count:3d}次 {bar}")
+                trend = cls._format_tag_trend(count, prev_tag_dict.get(tag, 0))
+                lines.append(f"  {i:2d}. {tag:<20} {count:3d}次 {bar}{trend}")
             lines.append("")
 
         if todo_items:
@@ -203,6 +218,26 @@ class SummaryExporter(TextExporter):
                 tag_counter[tag] += 1
 
         return tag_counter.most_common()
+
+    @classmethod
+    def _format_tag_trend(cls, current: int, previous: int) -> str:
+        """Format a trend indicator comparing current count to previous period.
+
+        Args:
+            current: Current period tag count
+            previous: Previous period tag count
+
+        Returns:
+            Formatted trend string (e.g. ' (+2)', ' (-1)', ' (new)', or '')
+        """
+        diff = current - previous
+        if diff > 0:
+            return f" (+{diff})"
+        elif diff < 0:
+            return f" ({diff})"
+        elif previous == 0 and current > 0:
+            return " (new)"
+        return ""
 
     @classmethod
     def _find_todo_items(cls, entries: list["Entry"]) -> list[dict]:
