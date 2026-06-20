@@ -2,6 +2,7 @@
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
 import datetime
+import os
 import time as time_module
 from unittest import mock
 
@@ -305,3 +306,225 @@ class TestRoundTripConsistency:
         # Both should be naive local datetime
         assert entry_now.date.tzinfo is None
         assert entry_explicit.date.tzinfo is None
+
+
+def _set_tz(tz_name: str) -> None:
+    """Set the local timezone via TZ env var and refresh C library state."""
+    os.environ["TZ"] = tz_name
+    time_module.tzset()
+
+
+def _restore_tz(original_tz: str | None) -> None:
+    """Restore the original timezone."""
+    if original_tz is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = original_tz
+    time_module.tzset()
+
+
+@pytest.fixture
+def sydney_tz():
+    """Temporarily set the local timezone to Australia/Sydney (southern hemisphere).
+
+    Sydney observes DST with the pattern OPPOSITE to the northern hemisphere:
+    - Summer (Oct-Apr): AEDT, UTC+11 (daylight time)
+    - Winter (Apr-Oct): AEST, UTC+10 (standard time)
+    - Spring forward: 1st Sunday in October (clocks go from 2:00 -> 3:00 AM)
+    - Fall back: 1st Sunday in April (clocks go from 3:00 -> 2:00 AM)
+    """
+    original = os.environ.get("TZ")
+    _set_tz("Australia/Sydney")
+    try:
+        yield
+    finally:
+        _restore_tz(original)
+
+
+class TestSouthernHemisphereDst:
+    """Tests that timezone normalization works correctly for southern hemisphere
+    timezones where DST transitions happen in opposite months to the north."""
+
+    @pytest.fixture
+    def journal(self, sydney_tz):
+        j = Journal("test", timeformat="%Y-%m-%d %H:%M")
+        j.config["colors"] = {
+            "body": "none",
+            "date": "none",
+            "tags": "none",
+            "title": "none",
+        }
+        j.config["linewrap"] = False
+        j.config["indent_character"] = ""
+        j.config["highlight"] = True
+        j.config["tag_symbols"] = ["@"]
+        return j
+
+    def test_southern_summer_has_daylight_offset(self, sydney_tz):
+        """January (summer in Sydney) should use AEDT (UTC+11)."""
+        utc_dt = datetime.datetime(
+            2024, 1, 15, 0, 30, tzinfo=datetime.timezone.utc
+        )
+        result = jrnl_time.convert_aware_to_local_naive(utc_dt)
+        expected = utc_dt.astimezone().replace(tzinfo=None)
+        assert result == expected
+        # AEDT is UTC+11, so 00:30 UTC -> 11:30 Sydney
+        assert result.hour == 11
+        assert result.tzinfo is None
+
+    def test_southern_winter_has_standard_offset(self, sydney_tz):
+        """July (winter in Sydney) should use AEST (UTC+10)."""
+        utc_dt = datetime.datetime(
+            2024, 7, 15, 0, 30, tzinfo=datetime.timezone.utc
+        )
+        result = jrnl_time.convert_aware_to_local_naive(utc_dt)
+        expected = utc_dt.astimezone().replace(tzinfo=None)
+        assert result == expected
+        # AEST is UTC+10, so 00:30 UTC -> 10:30 Sydney
+        assert result.hour == 10
+        assert result.tzinfo is None
+
+    def test_spring_forward_october_southern(self, sydney_tz):
+        """Sydney spring forward happens in October (northern hemisphere fall).
+
+        2024-10-06 02:00 AM local -> 03:00 AM local (clocks jump forward).
+        In UTC terms: 2024-10-05 16:00 UTC is the transition point.
+        Before: AEST (UTC+10), after: AEDT (UTC+11).
+        """
+        # Just before transition: 15:59 UTC = 01:59 AEST (standard time exists)
+        utc_before = datetime.datetime(
+            2024, 10, 5, 15, 59, tzinfo=datetime.timezone.utc
+        )
+        local_before = jrnl_time.convert_aware_to_local_naive(utc_before)
+        assert local_before.hour == 1  # 01:59 AM AEST
+        assert local_before.day == 6
+
+        # Just after transition: 16:00 UTC = 03:00 AEDT (daylight time)
+        utc_after = datetime.datetime(
+            2024, 10, 5, 16, 0, tzinfo=datetime.timezone.utc
+        )
+        local_after = jrnl_time.convert_aware_to_local_naive(utc_after)
+        assert local_after.hour == 3  # 03:00 AM AEDT
+        assert local_after.day == 6
+
+    def test_fall_back_april_southern(self, sydney_tz):
+        """Sydney fall back happens in April (northern hemisphere spring).
+
+        2024-04-07 03:00 AM local -> 02:00 AM local (clocks go back).
+        In UTC terms: 2024-04-06 16:00 UTC is the transition point.
+        Before: AEDT (UTC+11), after: AEST (UTC+10).
+        """
+        # Just before transition: 15:59 UTC = 02:59 AEDT (first 02:xx hour)
+        utc_before = datetime.datetime(
+            2024, 4, 6, 15, 59, tzinfo=datetime.timezone.utc
+        )
+        local_before = jrnl_time.convert_aware_to_local_naive(utc_before)
+        assert local_before.hour == 2  # 02:59 AM AEDT
+        assert local_before.day == 7
+
+        # Just after transition: 16:00 UTC = 02:00 AEST (second 02:xx hour)
+        utc_after = datetime.datetime(
+            2024, 4, 6, 16, 0, tzinfo=datetime.timezone.utc
+        )
+        local_after = jrnl_time.convert_aware_to_local_naive(utc_after)
+        assert local_after.hour == 2  # 02:00 AM AEST (fold=1)
+        assert local_after.day == 7
+
+    def test_entry_date_setter_southern_dst(self, journal):
+        """Entry date property normalizes correctly under southern-hemisphere DST."""
+        utc_dt = datetime.datetime(
+            2024, 1, 20, 10, 0, tzinfo=datetime.timezone.utc
+        )
+        entry = Entry(journal, date=utc_dt, text="Summer entry")
+        expected = utc_dt.astimezone().replace(tzinfo=None)
+        assert entry.date == expected
+        assert entry.date.tzinfo is None
+        # AEDT (UTC+11): 10:00 UTC -> 21:00 Sydney
+        assert entry.date.hour == 21
+
+    def test_roundtrip_southern_hemisphere(self, journal):
+        """Parse-serialize-parse roundtrip works under southern-hemisphere timezone."""
+        original_txt = (
+            "[2024-01-15T00:30:00Z] Summer entry (AEDT)\nBody\n\n"
+            "[2024-07-15T00:30:00Z] Winter entry (AEST)\nBody\n\n"
+            "[2024-10-05T16:30:00Z] Post spring-forward\nBody\n\n"
+            "[2024-04-06T16:30:00Z] Post fall-back\nBody\n"
+        )
+
+        parsed_first = journal._parse(original_txt)
+        assert len(parsed_first) == 4
+
+        dates_first = [e.date for e in parsed_first]
+
+        # Round-trip
+        re_serialized = "\n".join(str(e) for e in parsed_first)
+        parsed_second = journal._parse(re_serialized)
+        assert len(parsed_second) == 4
+
+        dates_second = [e.date for e in parsed_second]
+
+        for d1, d2 in zip(dates_first, dates_second):
+            assert d1 == d2
+            assert d1.tzinfo is None
+            assert d2.tzinfo is None
+
+    def test_strptime_tz_format_southern_winter(self, sydney_tz):
+        """strptime with %z format works correctly in southern winter."""
+        journal_tz = Journal("test", timeformat="%Y-%m-%d %H:%M %z")
+        journal_txt = "[2024-07-15 00:30 +0000] Winter UTC entry\nBody\n"
+        entries = journal_tz._parse(journal_txt)
+        assert len(entries) == 1
+        # AEST = UTC+10, 00:30 UTC -> 10:30 Sydney
+        assert entries[0].date.hour == 10
+        assert entries[0].date.tzinfo is None
+
+    def test_strptime_tz_format_southern_summer(self, sydney_tz):
+        """strptime with %z format works correctly in southern summer."""
+        journal_tz = Journal("test", timeformat="%Y-%m-%d %H:%M %z")
+        journal_txt = "[2024-01-15 00:30 +0000] Summer UTC entry\nBody\n"
+        entries = journal_tz._parse(journal_txt)
+        assert len(entries) == 1
+        # AEDT = UTC+11, 00:30 UTC -> 11:30 Sydney
+        assert entries[0].date.hour == 11
+        assert entries[0].date.tzinfo is None
+
+    def test_modified_flag_not_set_by_normalization(self, journal):
+        """Setting an aware datetime that normalizes to the same local time
+        must NOT flip the modified flag to True. The date setter only
+        normalizes; modified is a business-level concern.
+        """
+        # Start with a naive local datetime
+        local_dt = datetime.datetime(2024, 1, 15, 11, 30)  # 11:30 AM Sydney
+        entry = Entry(journal, date=local_dt, text="Test")
+        assert entry.modified is False
+
+        # Now set the same moment expressed as a UTC aware datetime
+        # (11:30 AEDT = 00:30 UTC)
+        utc_equivalent = datetime.datetime(
+            2024, 1, 15, 0, 30, tzinfo=datetime.timezone.utc
+        )
+        entry.date = utc_equivalent
+
+        # The normalized date should be the same local time
+        assert entry.date == local_dt
+        # modified should still be False — the moment didn't change,
+        # it was just expressed in a different timezone
+        # (Note: modified is NOT auto-set by the date property setter)
+        assert entry.modified is False
+
+    def test_modified_flag_explicitly_set(self, journal):
+        """Setting the date to a DIFFERENT moment should still allow the
+        caller to explicitly mark the entry as modified."""
+        entry = Entry(journal, date=datetime.datetime(2024, 1, 15, 10, 0), text="Test")
+        assert entry.modified is False
+
+        # Explicitly set a different date AND mark as modified
+        new_date = datetime.datetime(2024, 1, 16, 14, 0, tzinfo=datetime.timezone.utc)
+        entry.date = new_date
+        entry.modified = True
+
+        assert entry.modified is True
+        # The date should be normalized to local time
+        assert entry.date.tzinfo is None
+        # Should be different from the original date
+        assert entry.date != datetime.datetime(2024, 1, 15, 10, 0)

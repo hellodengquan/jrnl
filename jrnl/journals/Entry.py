@@ -25,14 +25,32 @@ class Entry:
         starred: bool = False,
     ):
         self.journal = journal  # Reference to journal mainly to access its config
+        self._date = None  # stored as local naive datetime, always
         raw_date = date or datetime.datetime.now()
-        self.date = jrnl_time.convert_aware_to_local_naive(raw_date)
+        self.date = raw_date
         self.text = text
         self._title = None
         self._body = None
         self._tags = None
         self.starred = starred
         self.modified = False
+
+    @property
+    def date(self) -> datetime.datetime:
+        """The entry date, always a naive datetime in the local timezone."""
+        return self._date
+
+    @date.setter
+    def date(self, value: datetime.datetime) -> None:
+        """Setting the date auto-normalizes to a naive datetime in local timezone.
+
+        Important: this setter does NOT set self.modified. The modified flag is
+        a business-level concept (whether the entry needs to be written back to
+        disk) and must be managed explicitly by the caller. This avoids spurious
+        writes when the date merely undergoes a timezone normalization that is
+        semantically equivalent.
+        """
+        self._date = jrnl_time.convert_aware_to_local_naive(value)
 
     @property
     def fulltext(self) -> str:

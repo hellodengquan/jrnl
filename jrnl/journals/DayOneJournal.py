@@ -19,6 +19,7 @@ import tzlocal
 
 from jrnl import __title__
 from jrnl import __version__
+from jrnl import time as jrnl_time
 
 from .Entry import Entry
 from .Journal import Journal
@@ -64,9 +65,11 @@ class DayOne(Journal):
                     if timezone.key != "UTC":
                         date = date.replace(fold=1) + timezone.utcoffset(date)
 
+                    entry_date = jrnl_time.convert_aware_to_local_naive(date)
+
                     entry = Entry(
                         self,
-                        date,
+                        entry_date,
                         text=dict_entry["Entry Text"],
                         starred=dict_entry["Starred"],
                     )
@@ -104,8 +107,11 @@ class DayOne(Journal):
         """Writes only the entries that have been modified into plist files."""
         for entry in self.entries:
             if entry.modified:
-                utc_time = datetime.datetime.utcfromtimestamp(
-                    time.mktime(entry.date.timetuple())
+                local_naive = jrnl_time.convert_aware_to_local_naive(entry.date)
+                local_tz = zoneinfo.ZoneInfo(str(tzlocal.get_localzone()))
+                local_aware = local_naive.replace(tzinfo=local_tz, fold=1)
+                utc_time = local_aware.astimezone(datetime.timezone.utc).replace(
+                    tzinfo=None
                 )
 
                 if not hasattr(entry, "uuid"):
