@@ -528,3 +528,253 @@ class TestSouthernHemisphereDst:
         assert entry.date.tzinfo is None
         # Should be different from the original date
         assert entry.date != datetime.datetime(2024, 1, 15, 10, 0)
+
+
+# Southern-hemisphere timezones with diverse DST behaviors:
+# - Pacific/Auckland: NZ, large offset (+13/+12), DST active in southern summer
+# - America/Santiago: Chile, western hemisphere southern DST (-3/-4),
+#   opposite sign and direction to eastern hemisphere
+# - Australia/Perth: Western Australia, no DST, flat UTC+8 year-round
+# - America/Sao_Paulo: Brazil, historically had DST but abolished ~2019, flat UTC-3
+# - Africa/Johannesburg: South Africa, flat UTC+2, no DST
+_MULTI_SOUTHERN_TZS = [
+    "Pacific/Auckland",
+    "America/Santiago",
+    "Australia/Perth",
+    "America/Sao_Paulo",
+    "Africa/Johannesburg",
+]
+
+
+@pytest.fixture(params=_MULTI_SOUTHERN_TZS)
+def southern_hemisphere_tz(request):
+    """Parametrized fixture covering multiple southern-hemisphere timezones
+    with diverse DST characteristics (DST, no-DST, western/eastern hemisphere)."""
+    original = os.environ.get("TZ")
+    _set_tz(request.param)
+    try:
+        yield request.param
+    finally:
+        _restore_tz(original)
+
+
+class TestMultipleSouthernHemisphereTimezones:
+    """Parametrized tests running across a diverse set of southern-hemisphere
+    timezones to catch IANA-data edge cases (no-DST zones, western-hemisphere
+    southern DST, abolished DST, etc.)."""
+
+    @pytest.fixture
+    def journal(self, southern_hemisphere_tz):
+        j = Journal("test", timeformat="%Y-%m-%d %H:%M")
+        j.config["colors"] = {
+            "body": "none",
+            "date": "none",
+            "tags": "none",
+            "title": "none",
+        }
+        j.config["linewrap"] = False
+        j.config["indent_character"] = ""
+        j.config["highlight"] = True
+        j.config["tag_symbols"] = ["@"]
+        return j
+
+    def test_helper_jan_summer_matches_astimezone(self, southern_hemisphere_tz):
+        """January is summer in the southern hemisphere."""
+        utc_dt = datetime.datetime(
+            2024, 1, 15, 12, 0, tzinfo=datetime.timezone.utc
+        )
+        expected = utc_dt.astimezone().replace(tzinfo=None)
+        result = jrnl_time.convert_aware_to_local_naive(utc_dt)
+        assert result == expected
+        assert result.tzinfo is None
+
+    def test_helper_jul_winter_matches_astimezone(self, southern_hemisphere_tz):
+        """July is winter in the southern hemisphere."""
+        utc_dt = datetime.datetime(
+            2024, 7, 15, 12, 0, tzinfo=datetime.timezone.utc
+        )
+        expected = utc_dt.astimezone().replace(tzinfo=None)
+        result = jrnl_time.convert_aware_to_local_naive(utc_dt)
+        assert result == expected
+        assert result.tzinfo is None
+
+    def test_helper_non_utc_offset_converts(self, southern_hemisphere_tz):
+        plus9 = datetime.timezone(datetime.timedelta(hours=9))
+        dt = datetime.datetime(2024, 3, 20, 10, 30, tzinfo=plus9)
+        expected = dt.astimezone().replace(tzinfo=None)
+        result = jrnl_time.convert_aware_to_local_naive(dt)
+        assert result == expected
+        assert result.tzinfo is None
+
+    def test_helper_naive_passthrough(self, southern_hemisphere_tz):
+        naive = datetime.datetime(2024, 5, 1, 8, 0)
+        result = jrnl_time.convert_aware_to_local_naive(naive)
+        assert result == naive
+        assert result.tzinfo is None
+
+    def test_datetimes_equal_same_moment_different_tz_expressions(
+        self, southern_hemisphere_tz
+    ):
+        """datetimes_equal should treat the same instant in different TZ
+        representations as equal."""
+        utc_dt = datetime.datetime(
+            2024, 1, 15, 12, 0, tzinfo=datetime.timezone.utc
+        )
+        local_naive = utc_dt.astimezone().replace(tzinfo=None)
+        assert jrnl_time.datetimes_equal(utc_dt, local_naive)
+
+    def test_datetimes_equal_different_moments_not_equal(
+        self, southern_hemisphere_tz
+    ):
+        a = datetime.datetime(2024, 1, 15, 12, 0, tzinfo=datetime.timezone.utc)
+        b = datetime.datetime(2024, 1, 15, 13, 0, tzinfo=datetime.timezone.utc)
+        assert not jrnl_time.datetimes_equal(a, b)
+
+    def test_entry_date_property_normalizes(self, journal, southern_hemisphere_tz):
+        utc_dt = datetime.datetime(
+            2024, 4, 10, 9, 30, tzinfo=datetime.timezone.utc
+        )
+        entry = Entry(journal, date=utc_dt, text="Test")
+        expected = utc_dt.astimezone().replace(tzinfo=None)
+        assert entry.date == expected
+        assert entry.date.tzinfo is None
+
+    def test_roundtrip_parse_serialize_parse(self, journal, southern_hemisphere_tz):
+        """The parse-serialize-parse roundtrip must be stable across all TZs."""
+        original_txt = (
+            "[2024-01-15T12:00:00Z] Jan entry\nBody1\n\n"
+            "[2024-07-15T12:00:00Z] Jul entry\nBody2\n"
+        )
+        first = journal._parse(original_txt)
+        assert len(first) == 2
+
+        serialized = "\n".join(str(e) for e in first)
+        second = journal._parse(serialized)
+        assert len(second) == 2
+
+        for a, b in zip(first, second):
+            assert a.date == b.date
+            assert a.date.tzinfo is None
+            assert b.date.tzinfo is None
+
+
+class TestNaiveAwareTypeError:
+    """Tests that naive vs aware datetime comparisons never raise TypeError.
+
+    Python raises TypeError when comparing a naive datetime with an aware one.
+    All comparison paths in the codebase must avoid this.
+    """
+
+    @pytest.fixture
+    def journal(self):
+        j = Journal("test", timeformat="%Y-%m-%d %H:%M")
+        j.config["colors"] = {
+            "body": "none",
+            "date": "none",
+            "tags": "none",
+            "title": "none",
+        }
+        j.config["linewrap"] = False
+        j.config["indent_character"] = ""
+        j.config["highlight"] = True
+        j.config["tag_symbols"] = ["@"]
+        return j
+
+    def test_helper_datetimes_equal_no_typeerror(self, journal):
+        naive = datetime.datetime(2024, 6, 15, 22, 30)
+        aware_utc = datetime.datetime(
+            2024, 6, 15, 14, 30, tzinfo=datetime.timezone.utc
+        )
+        # Must not raise TypeError
+        result = jrnl_time.datetimes_equal(naive, aware_utc)
+        assert isinstance(result, bool)
+
+    def test_entry_eq_no_typeerror_mixed_naive_aware(self, journal):
+        """Entry.__eq__ must not raise when dates have mixed tzinfo."""
+        entry_naive = Entry(
+            journal,
+            date=datetime.datetime(2024, 6, 15, 22, 30),
+            text="Same title",
+        )
+        entry_aware = Entry(
+            journal,
+            date=datetime.datetime(
+                2024, 6, 15, 14, 30, tzinfo=datetime.timezone.utc
+            ),
+            text="Same title",
+        )
+        # Must not raise TypeError - the dates represent the same local moment
+        # after normalization, so they should compare equal
+        assert entry_naive == entry_aware
+
+    def test_entry_eq_different_moments_not_equal_no_typeerror(self, journal):
+        entry_a = Entry(
+            journal,
+            date=datetime.datetime(2024, 6, 15, 10, 0),
+            text="title",
+        )
+        entry_b = Entry(
+            journal,
+            date=datetime.datetime(
+                2024, 6, 16, 10, 0, tzinfo=datetime.timezone.utc
+            ),
+            text="title",
+        )
+        # Must not raise TypeError
+        assert entry_a != entry_b
+
+    def test_dayone_update_old_entry_no_typeerror(self, journal):
+        """DayOne._update_old_entry must not raise TypeError for mixed dates."""
+        from jrnl.journals.DayOneJournal import DayOne
+
+        dayone = DayOne.__new__(DayOne)
+        dayone.config = {"tagsymbols": ["@"]}
+
+        old_entry = Entry(
+            journal,
+            date=datetime.datetime(2024, 6, 15, 22, 30),  # naive
+            text="Body",
+        )
+        old_entry.modified = False
+
+        # Same instant expressed as aware UTC
+        same_instant = datetime.datetime(
+            2024, 6, 15, 14, 30, tzinfo=datetime.timezone.utc
+        )
+        new_entry = Entry(journal, date=same_instant, text="Body")
+
+        # Must not raise TypeError; same instant, so modified should stay False
+        dayone._update_old_entry(old_entry, new_entry)
+        assert old_entry.modified is False
+
+    def test_dayone_update_old_entry_detects_real_change(self, journal):
+        from jrnl.journals.DayOneJournal import DayOne
+
+        dayone = DayOne.__new__(DayOne)
+        dayone.config = {"tagsymbols": ["@"]}
+
+        old_entry = Entry(
+            journal,
+            date=datetime.datetime(2024, 6, 15, 22, 30),
+            text="Body",
+        )
+        old_entry.modified = False
+
+        # Different instant (1 day later)
+        different_instant = datetime.datetime(
+            2024, 6, 16, 14, 30, tzinfo=datetime.timezone.utc
+        )
+        new_entry = Entry(journal, date=different_instant, text="Body")
+
+        dayone._update_old_entry(old_entry, new_entry)
+        assert old_entry.modified is True
+
+    def test_journal_validate_parsing_no_typeerror(self, journal):
+        """Journal.validate_parsing internally uses Entry.__eq__ and must
+        not raise TypeError even when roundtrip normalization changes
+        tzinfo representation."""
+        original_txt = "[2024-06-15T14:30:00Z] Test entry\nBody\n"
+        journal.entries = journal._parse(original_txt)
+        # validate_parsing should not raise TypeError
+        assert journal.validate_parsing() is True
+

@@ -21,6 +21,12 @@ def convert_aware_to_local_naive(dt: datetime.datetime) -> datetime.datetime:
     return dt.astimezone().replace(tzinfo=None)
 
 
+def datetimes_equal(a: datetime.datetime, b: datetime.datetime) -> bool:
+    """Compare two datetimes safely, normalizing timezone-aware ones to local naive
+    first to avoid TypeError when comparing naive vs aware datetimes."""
+    return convert_aware_to_local_naive(a) == convert_aware_to_local_naive(b)
+
+
 def __get_pdt_calendar():
     import parsedatetime as pdt
 

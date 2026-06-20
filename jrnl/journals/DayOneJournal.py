@@ -179,7 +179,11 @@ class DayOne(Journal):
         for attr in ("title", "body", "date", "tags"):
             old_attr = getattr(entry, attr)
             new_attr = getattr(new_entry, attr)
-            if old_attr != new_attr:
+            if attr == "date":
+                attr_changed = not jrnl_time.datetimes_equal(old_attr, new_attr)
+            else:
+                attr_changed = old_attr != new_attr
+            if attr_changed:
                 entry.modified = True
                 setattr(entry, attr, new_attr)
 

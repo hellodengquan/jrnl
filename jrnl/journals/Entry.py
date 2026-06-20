@@ -216,7 +216,7 @@ class Entry:
             not isinstance(other, Entry)
             or self.title.strip() != other.title.strip()
             or self.body.rstrip() != other.body.rstrip()
-            or self.date != other.date
+            or not jrnl_time.datetimes_equal(self.date, other.date)
             or self.starred != other.starred
         ):
             return False
