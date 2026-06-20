@@ -46,6 +46,7 @@ def expected_args(**kwargs):
         "text": [],
         "config_override": [],
         "config_file_path": "",
+        "backlinks": None,
     }
     return {**default_args, **kwargs}
 
@@ -215,6 +216,28 @@ def test_and_alone():
 
 def test_tags_alone():
     assert cli_as_dict("--tags") == expected_args(tags=True)
+
+
+def test_backlinks_alone():
+    assert cli_as_dict("--backlinks 2024-01-01") == expected_args(
+        backlinks=["2024-01-01"]
+    )
+
+
+def test_backlinks_with_multiple_args():
+    assert cli_as_dict("--backlinks 2024-01-01 10:00") == expected_args(
+        backlinks=["2024-01-01", "10:00"]
+    )
+
+
+def test_backlinks_with_title():
+    assert cli_as_dict("--backlinks First entry") == expected_args(
+        backlinks=["First", "entry"]
+    )
+
+
+def test_backlinks_short_alias():
+    assert cli_as_dict("-bl 2024-01-01") == expected_args(backlinks=["2024-01-01"])
 
 
 def test_text_alone():

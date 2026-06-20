@@ -343,6 +343,28 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         help="Change timestamp for selected entries (default: now)",
     )
     exporting.add_argument(
+        "--backlinks",
+        dest="backlinks",
+        nargs="+",
+        metavar="IDENTIFIER",
+        help="""
+        Show all entries that reference the specified entry.
+
+        IDENTIFIER can be a date (e.g., '2024-01-01'),
+        a datetime (e.g., '2024-01-01 10:00'),
+        or a title keyword.
+
+        Example: jrnl --backlinks 2024-01-01
+        """,
+    )
+    exporting.add_argument(
+        "-bl",
+        dest="backlinks",
+        nargs="+",
+        metavar="IDENTIFIER",
+        help=argparse.SUPPRESS,
+    )
+    exporting.add_argument(
         "--format",
         metavar="TYPE",
         dest="export",

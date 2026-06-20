@@ -81,6 +81,11 @@ def run(args: "Namespace"):
 
     # If not append mode, then we're in search mode (only 2 modes exist)
     search_mode(**kwargs)
+
+    # Handle backlinks query if requested
+    if args.backlinks:
+        _backlinks_search_results(**kwargs)
+
     entries_found_count = len(journal)
     _print_entries_found_count(entries_found_count, args)
 
@@ -385,6 +390,77 @@ def _change_time_search_results(
         journal.write()
 
 
+def _backlinks_search_results(
+    args: "Namespace",
+    journal: "Journal",
+    old_entries: list["Entry"],
+    **kwargs,
+) -> None:
+    """Filter entries to show those referencing the target entry.
+
+    The target entry is identified by the identifier provided via --backlinks.
+    """
+    # Join the identifier parts (nargs="+") into a single string
+    ref_identifier = " ".join(args.backlinks)
+
+    logging.debug(f"Searching backlinks for identifier: '{ref_identifier}'")
+
+    # Find the target entry from the full journal (old_entries), not filtered ones
+    # Create a temporary journal with all entries for lookup
+    temp_journal = journal.__class__(journal.name, **journal.config)
+    temp_journal.entries = old_entries.copy()
+    temp_journal.build_references_index()
+
+    target_entry = temp_journal.find_entry_by_reference(ref_identifier)
+
+    if target_entry is None:
+        logging.debug(f"No entry found for identifier: '{ref_identifier}'")
+        journal.entries = []
+        return
+
+    logging.debug(f"Found target entry: {target_entry}")
+    logging.debug(f"Target has {len(target_entry.backlinks)} backlinks")
+
+    # Use date and title to match entries across different object instances
+    target_date = target_entry.date
+    target_title = target_entry.title.strip()
+
+    # Find the corresponding entry in old_entries
+    target_in_old = None
+    for e in old_entries:
+        if e.date == target_date and e.title.strip() == target_title:
+            target_in_old = e
+            break
+
+    # Filter journal to show only entries that reference the target
+    backlink_entries = []
+    if target_in_old is not None:
+        # If we found a match in old_entries, check its backlinks directly
+        # First ensure backlinks are built for old_entries
+        for e in old_entries:
+            # Check if this entry references the target by looking at its references
+            for ref_text in e.references:
+                resolved_ref = temp_journal.find_entry_by_reference(ref_text, e)
+                if (
+                    resolved_ref is not None
+                    and resolved_ref.date == target_date
+                    and resolved_ref.title.strip() == target_title
+                ):
+                    backlink_entries.append(e)
+                    break
+    else:
+        # Fallback: use temp_journal's backlinks and match by date+title
+        for bl in target_entry.backlinks:
+            for e in old_entries:
+                if e.date == bl.date and e.title.strip() == bl.title.strip():
+                    backlink_entries.append(e)
+                    break
+
+    journal.entries = backlink_entries
+
+    logging.debug(f"Found {len(backlink_entries)} backlink entries")
+
+
 def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> None:
     if len(journal) == 0:
         return
@@ -447,6 +523,7 @@ def _has_display_args(args: "Namespace") -> bool:
             args.tags,
             args.short,
             args.export,  # --format
+            args.backlinks,
         )
     )
 
