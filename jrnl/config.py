@@ -221,14 +221,24 @@ DYNAMIC_DICT_KEYS = {"journals"}
 def _recursive_check_integrity(
     default_node: Any,
     config_node: Any,
-    path: tuple[str, ...],
+    path: tuple[str | int, ...],
     result: list[dict],
     skip_keys: set[str],
 ) -> None:
-    if not isinstance(default_node, dict):
-        return
+    if isinstance(default_node, dict):
+        _check_dict_node(default_node, config_node, path, result, skip_keys)
+    elif isinstance(default_node, list) and default_node:
+        _check_list_node(default_node, config_node, path, result, skip_keys)
 
-    if path and path[-1] in skip_keys:
+
+def _check_dict_node(
+    default_node: dict,
+    config_node: Any,
+    path: tuple[str | int, ...],
+    result: list[dict],
+    skip_keys: set[str],
+) -> None:
+    if path and isinstance(path[-1], str) and path[-1] in skip_keys:
         return
 
     if config_node is None or not isinstance(config_node, dict):
@@ -260,19 +270,43 @@ def _recursive_check_integrity(
             )
 
 
+def _check_list_node(
+    default_node: list,
+    config_node: Any,
+    path: tuple[str | int, ...],
+    result: list[dict],
+    skip_keys: set[str],
+) -> None:
+    if not isinstance(default_node[0], dict):
+        return
+
+    if not isinstance(config_node, list) or not config_node:
+        _recursive_check_integrity(
+            default_node[0], {}, path + (0,), result, skip_keys
+        )
+        return
+
+    for idx, item in enumerate(config_node):
+        if isinstance(item, dict):
+            _recursive_check_integrity(
+                default_node[0], item, path + (idx,), result, skip_keys
+            )
+
+
 def check_config_integrity(
     config: dict, skip_keys: set[str] | None = None
 ) -> list[dict]:
     """
     Recursively check the configuration for missing fields by comparing
-    with the default config. Supports arbitrarily deep nested structures.
+    with the default config. Supports arbitrarily deep nested structures,
+    including lists of dicts (e.g. template lists).
 
     :param config: The user configuration dictionary to check.
     :param skip_keys: Set of top-level keys whose sub-keys are dynamic
         and should not be recursively validated (e.g. "journals").
     :return: A list of dicts, each with:
-        - 'path': tuple of keys representing the full path to the
-          missing field (e.g. ('colors', 'title'))
+        - 'path': tuple of keys/indices representing the full path to
+          the missing field (e.g. ('colors', 'title') or ('templates', 0, 'name'))
         - 'default_value': the value that will be applied as default
     """
     if skip_keys is None:
@@ -286,21 +320,56 @@ def check_config_integrity(
     return result
 
 
-def format_missing_path(path: tuple[str, ...]) -> str:
-    return ".".join(path)
+def format_missing_path(path: tuple[str | int, ...]) -> str:
+    """Format a path tuple into a human-readable dot-notation string.
+
+    List indices are enclosed in brackets (e.g. "templates[0].name").
+    """
+    parts: list[str] = []
+    for part in path:
+        if isinstance(part, int):
+            parts.append(f"[{part}]")
+        else:
+            if parts:
+                parts.append(".")
+            parts.append(part)
+    return "".join(parts)
 
 
 def apply_missing_defaults(config: dict, missing: list[dict]) -> None:
-    """Apply default values for missing fields into the given config dict."""
+    """Apply default values for missing fields into the given config dict.
+
+    For list-indexed paths (e.g. templates[0].name), only fills in fields
+    on existing list elements; does not create new list elements.
+    """
     for item in missing:
         path = item["path"]
         default_value = item["default_value"]
-        node = config
-        for key in path[:-1]:
-            if key not in node or not isinstance(node[key], dict):
-                node[key] = {}
-            node = node[key]
-        node[path[-1]] = default_value
+        node: Any = config
+
+        for i, key in enumerate(path[:-1]):
+            if isinstance(key, int):
+                if not isinstance(node, list) or key >= len(node):
+                    node = None
+                    break
+                node = node[key]
+            else:
+                if not isinstance(node, dict) or key not in node:
+                    if isinstance(node, dict):
+                        node[key] = {}
+                    else:
+                        node = None
+                        break
+                node = node[key]
+
+        if node is None:
+            continue
+
+        last_key = path[-1]
+        if isinstance(last_key, int):
+            continue
+        if isinstance(node, dict):
+            node[last_key] = default_value
 
 
 def validate_journal_name(journal_name: str, config: dict) -> None:
