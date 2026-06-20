@@ -196,6 +196,8 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
 
         --dry-run                Scan and preview changes without writing
         --all-journals           Apply across ALL configured journals
+        --on-conflict STRATEGY   How to handle existing destination tag:
+                                 abort (default), merge, or skip
         """,
     )
     standalone.add_argument(
@@ -225,6 +227,14 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         action="store_true",
         help="Apply operation across all journals (use with --rename-tag)",
         default=False,
+    )
+    standalone.add_argument(
+        "--on-conflict",
+        metavar="STRATEGY",
+        dest="on_conflict",
+        choices=["abort", "merge", "skip"],
+        default="abort",
+        help="Conflict strategy when destination tag exists: abort, merge, or skip (default: abort)",
     )
     standalone.add_argument(
         "--file",

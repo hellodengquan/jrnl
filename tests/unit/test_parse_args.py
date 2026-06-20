@@ -50,6 +50,7 @@ def expected_args(**kwargs):
         "to_tag": None,
         "dry_run": False,
         "all_journals": False,
+        "on_conflict": "abort",
     }
     return {**default_args, **kwargs}
 

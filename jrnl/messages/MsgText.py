@@ -305,11 +305,31 @@ class MsgText(Enum):
 
     RenameTagDestExists = """
         Destination tag {to_tag} already exists in journal "{journal_name}" ({count} occurrence(s)).
-        Use caution as merging may cause data ambiguity.
+        """
+
+    RenameTagDestExistsMerge = """
+        Merging: entries with both {from_tag} and {to_tag} will end up with a single {to_tag}.
+        """
+
+    RenameTagDestExistsSkip = """
+        Skipping journal "{journal_name}" because destination tag {to_tag} already exists.
+        """
+
+    RenameTagDestExistsAbort = """
+        Aborting: destination tag {to_tag} already exists in journal "{journal_name}".
+        Use --on-conflict merge to allow merging, or --on-conflict skip to skip conflicting journals.
         """
 
     RenameTagScanHeader = """
         Scanning journals for tag "{from_tag}" to rename to "{to_tag}":
+        """
+
+    RenameTagScanProgress = """
+        [{current}/{total}] Scanning "{journal_name}"...
+        """
+
+    RenameTagScanComplete = """
+        Scan complete: {scanned} journal(s) scanned, {skipped} skipped, {matched} entry(ies) found.
         """
 
     RenameTagJournalSummary = """
@@ -351,6 +371,20 @@ class MsgText(Enum):
 
     RenameTagRollbackFailed = """
         WARNING: Rollback FAILED for journal "{journal_name}". Data may be in inconsistent state!
+        """
+
+    RenameTagRollbackPartialState = """
+        Partial recovery report for journal "{journal_name}":
+          - Backup file: {backup_path}
+          - Backup restored: {backup_restored}
+          - In-memory state reverted: {memory_reverted}
+          - Journal re-read verified: {verified}
+        """
+
+    RenameTagRollbackSummary = """
+        Rollback summary: {recovered} recovered, {failed} failed, {partial} partially recovered.
+        Backup files retained for manual recovery:
+        {backup_list}
         """
 
     RenameTagComplete = """

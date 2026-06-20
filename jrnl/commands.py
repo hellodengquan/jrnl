@@ -16,6 +16,7 @@ avoid any possible overhead for these standalone commands.
 """
 
 import argparse
+import concurrent.futures
 import logging
 import os
 import platform
@@ -184,12 +185,10 @@ def postconfig_decrypt(
 
 
 def _validate_tag_format(tag: str, tagsymbols: str) -> bool:
-    """Check if tag starts with a valid tag symbol."""
     return len(tag) > 1 and tag[0] in tagsymbols
 
 
 def _backup_journal_file(journal_path: str) -> str | None:
-    """Create a backup copy of the journal file before modification."""
     import shutil
 
     backup_path = journal_path + ".bak"
@@ -203,7 +202,6 @@ def _backup_journal_file(journal_path: str) -> str | None:
 
 
 def _restore_from_backup(backup_path: str, journal_path: str) -> bool:
-    """Restore journal from backup file."""
     import shutil
 
     try:
@@ -216,17 +214,182 @@ def _restore_from_backup(backup_path: str, journal_path: str) -> bool:
     return False
 
 
+def _scan_single_journal(
+    journal_name: str, j_config: dict, from_tag: str, to_tag: str
+) -> dict | None:
+    from jrnl.journals import open_journal
+
+    try:
+        journal = open_journal(journal_name, j_config)
+    except JrnlException:
+        return None
+
+    matching_entries = journal.find_entries_with_tag(from_tag)
+    count = len(matching_entries)
+    dest_count = journal.count_tag_occurrences(to_tag)
+
+    return {
+        "journal": journal,
+        "config": j_config,
+        "count": count,
+        "dest_count": dest_count,
+        "sample_entries": matching_entries[:3],
+    }
+
+
+def _apply_conflict_strategy(
+    journal_name: str,
+    result: dict,
+    from_tag: str,
+    to_tag: str,
+    on_conflict: str,
+) -> bool:
+    """Handle destination tag conflict based on strategy.
+    Returns True if the journal should be kept, False if it should be removed.
+    """
+    dest_count = result.get("dest_count", 0)
+    if dest_count == 0:
+        return True
+
+    print_msg(
+        Message(
+            MsgText.RenameTagDestExists,
+            MsgStyle.WARNING,
+            {"to_tag": to_tag, "journal_name": journal_name, "count": dest_count},
+        )
+    )
+
+    if on_conflict == "skip":
+        print_msg(
+            Message(
+                MsgText.RenameTagDestExistsSkip,
+                MsgStyle.WARNING,
+                {"journal_name": journal_name, "to_tag": to_tag},
+            )
+        )
+        return False
+    elif on_conflict == "merge":
+        print_msg(
+            Message(
+                MsgText.RenameTagDestExistsMerge,
+                MsgStyle.NORMAL,
+                {"from_tag": from_tag, "to_tag": to_tag},
+            )
+        )
+        return True
+    else:
+        raise JrnlException(
+            Message(
+                MsgText.RenameTagDestExistsAbort,
+                MsgStyle.ERROR,
+                {"to_tag": to_tag, "journal_name": journal_name},
+            )
+        )
+
+
+def _perform_rollback(
+    backups: dict,
+    processed_journals: list,
+    scan_results: dict,
+) -> dict:
+    """Attempt rollback with multi-layer recovery.
+    Returns a dict summarizing recovery status per journal:
+      {name: {"backup_restored": bool, "memory_reverted": bool, "verified": bool, "backup_path": str|None}}
+    """
+    import shutil
+
+    from jrnl.journals import open_journal
+
+    recovery_status = {}
+
+    for journal_name in reversed(list(backups.keys())):
+        backup_path, journal_path = backups[journal_name]
+
+        print_msg(
+            Message(
+                MsgText.RenameTagRollbackJournal,
+                MsgStyle.WARNING,
+                {"journal_name": journal_name},
+            )
+        )
+
+        backup_restored = False
+        memory_reverted = False
+        verified = False
+
+        if backup_path and os.path.exists(backup_path):
+            backup_restored = _restore_from_backup(backup_path, journal_path)
+
+        if not backup_restored:
+            for proc_name, rollback_data, _ in reversed(processed_journals):
+                if proc_name == journal_name and rollback_data:
+                    journal = scan_results[journal_name]["journal"]
+                    journal.rollback_tag_rename(rollback_data)
+                    try:
+                        journal.write()
+                        memory_reverted = True
+                    except Exception as write_err:
+                        logging.error(
+                            f"Failed to write in-memory rollback for {journal_name}: {write_err}"
+                        )
+                    break
+
+        if backup_restored or memory_reverted:
+            j_config = scan_results[journal_name]["config"]
+            try:
+                verify_journal = open_journal(journal_name, j_config)
+                if len(verify_journal.entries) > 0:
+                    verified = True
+            except Exception as verify_err:
+                logging.error(
+                    f"Verification failed for {journal_name}: {verify_err}"
+                )
+
+        retained_backup = None
+        if not verified and backup_path and os.path.exists(backup_path):
+            retained_backup = backup_path
+        elif not verified:
+            try:
+                retained_backup = _backup_journal_file(journal_path)
+            except Exception:
+                pass
+
+        recovery_status[journal_name] = {
+            "backup_restored": backup_restored,
+            "memory_reverted": memory_reverted,
+            "verified": verified,
+            "backup_path": retained_backup,
+        }
+
+        print_msg(
+            Message(
+                MsgText.RenameTagRollbackPartialState,
+                MsgStyle.WARNING if not verified else MsgStyle.NORMAL,
+                {
+                    "journal_name": journal_name,
+                    "backup_path": retained_backup or "N/A",
+                    "backup_restored": str(backup_restored),
+                    "memory_reverted": str(memory_reverted),
+                    "verified": str(verified),
+                },
+            )
+        )
+
+    return recovery_status
+
+
 def postconfig_rename_tag(
     args: argparse.Namespace, config: dict, original_config: dict
 ) -> int:
     """
     Rename a tag across entries in one or multiple journals.
     Supports:
-    - Preview scanning with sample entries
+    - Concurrent scanning with progress feedback across multiple journals
     - Encrypted journal protection
-    - Destination tag existence warning
-    - Transactional rollback on write failure
+    - Destination tag conflict handling (merge / skip / abort)
+    - Multi-layer rollback: file backup -> in-memory revert -> re-read verification
     """
+    import concurrent.futures
     import os
     import shutil
 
@@ -242,6 +405,7 @@ def postconfig_rename_tag(
 
     from_tag = args.from_tag.strip()
     to_tag = args.to_tag.strip()
+    on_conflict = getattr(args, "on_conflict", "abort")
     tagsymbols = config.get("tagsymbols", "@")
 
     if from_tag.lower() == to_tag.lower():
@@ -277,6 +441,8 @@ def postconfig_rename_tag(
         validate_journal_name(args.journal_name, original_config)
         journal_names = [args.journal_name]
 
+    total_journals = len(journal_names)
+
     print_msg(
         Message(
             MsgText.RenameTagScanHeader,
@@ -288,6 +454,10 @@ def postconfig_rename_tag(
     scan_results = {}
     skipped_journals = []
     total_entries = 0
+    scanned_count = 0
+
+    scan_futures = {}
+    encrypted_set = set()
 
     for journal_name in journal_names:
         j_config = scope_config(original_config.copy(), journal_name)
@@ -301,26 +471,43 @@ def postconfig_rename_tag(
                 )
             )
             skipped_journals.append(journal_name)
+            encrypted_set.add(journal_name)
             continue
 
+        print_msg(
+            Message(
+                MsgText.RenameTagScanProgress,
+                MsgStyle.NORMAL,
+                {
+                    "current": journal_names.index(journal_name) + 1 - len(encrypted_set),
+                    "total": total_journals - len(encrypted_set),
+                    "journal_name": journal_name,
+                },
+            )
+        )
+
+        future = _SCAN_EXECUTOR.submit(
+            _scan_single_journal, journal_name, j_config, from_tag, to_tag
+        )
+        scan_futures[future] = journal_name
+
+    for future in concurrent.futures.as_completed(scan_futures):
+        journal_name = scan_futures[future]
+        scanned_count += 1
+
         try:
-            journal = open_journal(journal_name, j_config)
-        except JrnlException:
+            result = future.result()
+        except Exception as e:
+            logging.error(f"Scan failed for journal {journal_name}: {e}")
             skipped_journals.append(journal_name)
             continue
 
-        matching_entries = journal.find_entries_with_tag(from_tag)
-        count = len(matching_entries)
-        dest_count = journal.count_tag_occurrences(to_tag)
+        if result is None:
+            skipped_journals.append(journal_name)
+            continue
 
-        scan_results[journal_name] = {
-            "journal": journal,
-            "config": j_config,
-            "count": count,
-            "dest_count": dest_count,
-            "sample_entries": matching_entries[:3],
-        }
-
+        scan_results[journal_name] = result
+        count = result["count"]
         total_entries += count
 
         print_msg(
@@ -331,19 +518,23 @@ def postconfig_rename_tag(
             )
         )
 
-        if dest_count > 0:
+        if result["dest_count"] > 0:
             print_msg(
                 Message(
                     MsgText.RenameTagDestExists,
                     MsgStyle.WARNING,
-                    {"to_tag": to_tag, "journal_name": journal_name, "count": dest_count},
+                    {
+                        "to_tag": to_tag,
+                        "journal_name": journal_name,
+                        "count": result["dest_count"],
+                    },
                 )
             )
 
         sample_limit = min(3, count)
         for i in range(sample_limit):
-            entry = matching_entries[i]
-            date_str = entry.date.strftime(journal.config["timeformat"])
+            entry = result["sample_entries"][i]
+            date_str = entry.date.strftime(result["journal"].config["timeformat"])
             print_msg(
                 Message(
                     MsgText.RenameTagSampleEntry,
@@ -351,6 +542,37 @@ def postconfig_rename_tag(
                     {"date": date_str, "title": entry.title.strip()[:80]},
                 )
             )
+
+    print_msg(
+        Message(
+            MsgText.RenameTagScanComplete,
+            MsgStyle.NORMAL,
+            {
+                "scanned": scanned_count,
+                "skipped": len(skipped_journals),
+                "matched": total_entries,
+            },
+        )
+    )
+
+    if total_entries == 0:
+        print_msg(
+            Message(
+                MsgText.RenameTagNoEntriesFound,
+                MsgStyle.WARNING,
+                {"from_tag": from_tag},
+            )
+        )
+        return 0
+
+    scan_results_before_conflict = dict(scan_results)
+    for journal_name, result in list(scan_results.items()):
+        should_keep = _apply_conflict_strategy(
+            journal_name, result, from_tag, to_tag, on_conflict
+        )
+        if not should_keep:
+            total_entries -= result["count"]
+            del scan_results[journal_name]
 
     if total_entries == 0:
         print_msg(
@@ -395,7 +617,10 @@ def postconfig_rename_tag(
             j_config = result["config"]
             journal_path = j_config.get("journal")
 
-            backup_path = _backup_journal_file(journal_path)
+            if os.path.isdir(journal_path):
+                backup_path = None
+            else:
+                backup_path = _backup_journal_file(journal_path)
             backups[journal_name] = (backup_path, journal_path)
 
             modified_count, rollback_data = journal.rename_tag(from_tag, to_tag)
@@ -429,36 +654,49 @@ def postconfig_rename_tag(
     except Exception as e:
         print_msg(Message(MsgText.RenameTagError, MsgStyle.ERROR, {"error": str(e)}))
 
-        for journal_name in reversed(list(backups.keys())):
-            backup_path, journal_path = backups[journal_name]
-            print_msg(
-                Message(
-                    MsgText.RenameTagRollbackJournal,
-                    MsgStyle.WARNING,
-                    {"journal_name": journal_name},
-                )
-            )
+        all_results = {**scan_results_before_conflict, **scan_results}
+        recovery_status = _perform_rollback(
+            backups, processed_journals, all_results
+        )
 
-            restored = False
-            if backup_path and os.path.exists(backup_path):
-                restored = _restore_from_backup(backup_path, journal_path)
+        recovered = 0
+        failed = 0
+        partial = 0
+        retained_backups = []
 
-            if restored:
-                print_msg(
-                    Message(
-                        MsgText.RenameTagRollbackSuccess,
-                        MsgStyle.NORMAL,
-                        {"journal_name": journal_name},
-                    )
-                )
+        for jname, status in recovery_status.items():
+            if status["verified"]:
+                recovered += 1
+            elif status["memory_reverted"] or status["backup_restored"]:
+                partial += 1
             else:
-                print_msg(
-                    Message(
-                        MsgText.RenameTagRollbackFailed,
-                        MsgStyle.ERROR,
-                        {"journal_name": journal_name},
-                    )
-                )
+                failed += 1
+
+            if status["backup_path"] and os.path.exists(status["backup_path"]):
+                retained_backups.append(status["backup_path"])
+
+        for journal_name, result in scan_results.items():
+            if journal_name not in recovery_status:
+                continue
+            bp = backups.get(journal_name, (None, None))[0]
+            if bp and os.path.exists(bp):
+                try:
+                    os.remove(bp)
+                except Exception:
+                    pass
+
+        print_msg(
+            Message(
+                MsgText.RenameTagRollbackSummary,
+                MsgStyle.WARNING,
+                {
+                    "recovered": recovered,
+                    "failed": failed,
+                    "partial": partial,
+                    "backup_list": "\n".join(f"  - {p}" for p in retained_backups) if retained_backups else "  (none)",
+                },
+            )
+        )
 
         return 1
 
@@ -478,3 +716,6 @@ def postconfig_rename_tag(
     )
 
     return 0
+
+
+_SCAN_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4)
