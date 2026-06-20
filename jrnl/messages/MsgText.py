@@ -448,6 +448,42 @@ class MsgText(Enum):
         WARNING: Could not acquire lock on journal "{journal_name}". Concurrent modifications may cause data loss!
         """
 
+    # --- Undo / Redo --- #
+    UndoStackEmpty = """
+        Nothing to undo.
+        """
+    RedoStackEmpty = """
+        Nothing to redo.
+        """
+    UndoOperation = """
+        Undo: {operation} ({entries} entry(ies)).
+        """
+    RedoOperation = """
+        Redo: {operation} ({entries} entry(ies)).
+        """
+    UndoStackFull = """
+        Undo stack full ({max_undo} operations), oldest discarded.
+        """
+    UndoHistoryPurged = """
+        Undo/redo history cleared.
+        """
+
+    # --- Tag Normalization --- #
+    TagNormalizedNFC = """
+        Tag "{raw}" normalized to NFC form "{normalized}".
+        """
+    TagNormalizedCaseFold = """
+        Tag "{raw}" case-folded to "{normalized}".
+        """
+
+    # --- Search Index --- #
+    SearchIndexRebuilt = """
+        Search index rebuilt: {count} entries, {tags} unique tags.
+        """
+    SearchIndexUpdated = """
+        Search index updated after tag rename: {from_tag} -> {to_tag} across {count} entries.
+        """
+
     # --- Deprecation --- #
     DeprecatedCommand = """
         The command {old_cmd} is deprecated and will be removed from jrnl soon.

@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from jrnl.color import colorize
 from jrnl.color import highlight_tags_with_background_color
+from jrnl.normalization import normalize_tag
+from jrnl.normalization import normalize_tags
 from jrnl.output import wrap_with_ansi_colors
 
 if TYPE_CHECKING:
@@ -78,14 +80,13 @@ class Entry:
 
     @staticmethod
     def tag_regex(tagsymbols: str) -> re.Pattern:
-        pattern = rf"(?<!\S)([{tagsymbols}][-+*#/\w]+)"
-        return re.compile(pattern)
+        pattern = rf"(?<!\S)([{tagsymbols}][-+*#/\w\u00A0-\uFFFF]+)"
+        return re.compile(pattern, re.UNICODE)
 
     def _parse_tags(self) -> set[str]:
         tagsymbols = self.journal.config["tagsymbols"]
-        return {
-            tag.lower() for tag in re.findall(Entry.tag_regex(tagsymbols), self.text)
-        }
+        raw_tags = re.findall(Entry.tag_regex(tagsymbols), self.text)
+        return {normalize_tag(tag) for tag in raw_tags}
 
     def __str__(self):
         """Returns string representation of the entry to be written to journal file."""

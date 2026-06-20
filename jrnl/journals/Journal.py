@@ -9,14 +9,18 @@ import re
 from jrnl import time
 from jrnl.config import validate_journal_name
 from jrnl.encryption import determine_encryption_method
+from jrnl.history import HistoryEntry
+from jrnl.history import JournalHistory
 from jrnl.lock import JournalLock
 from jrnl.lock import locked_journal
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
+from jrnl.normalization import normalize_tag
 from jrnl.output import print_msg
 from jrnl.path import expand_path
 from jrnl.prompt import yesno
+from jrnl.search_index import JournalSearchIndex
 
 from .Entry import Entry
 
@@ -53,6 +57,8 @@ class Journal:
         self.entries = []
         self.encryption_method = None
         self._lock: JournalLock | None = None
+        self._history = JournalHistory()
+        self._search_index = JournalSearchIndex(self)
 
         # Track changes to journal in session. Modified is tracked in Entry
         self.added_entry_count = 0
@@ -136,6 +142,7 @@ class Journal:
         text = self._decrypt(text)
         self.entries = self._parse(text)
         self.sort()
+        self._search_index.rebuild(verbose=False)
         logging.debug("opened %s with %d entries", self.__class__.__name__, len(self))
         return self
 
@@ -267,8 +274,8 @@ class Journal:
 
         exclude is a list of the tags which should not appear in the results.
         entry is kept if any tag is present, unless they appear in exclude."""
-        self.search_tags = {tag.lower() for tag in tags}
-        excluded_tags = {tag.lower() for tag in exclude}
+        self.search_tags = {normalize_tag(tag) for tag in tags}
+        excluded_tags = {normalize_tag(tag) for tag in exclude}
         end_date = time.parse(end_date, inclusive=True)
         start_date = time.parse(start_date)
 
@@ -428,14 +435,29 @@ class Journal:
             "modified": len([e for e in self.entries if e.modified]),
         }
 
+    @property
+    def history(self) -> JournalHistory:
+        return self._history
+
+    @property
+    def search_index(self) -> JournalSearchIndex:
+        return self._search_index
+
     def find_entries_with_tag(self, tag: str) -> list["Entry"]:
-        """Find all entries containing the specified tag."""
-        tag_lower = tag.lower()
-        return [entry for entry in self.entries if tag_lower in entry.tags]
+        """Find all entries containing the specified tag (normalized)."""
+        norm_tag = normalize_tag(tag)
+        indices = self._search_index.entries_with_tag(norm_tag)
+        if indices:
+            return [self.entries[i] for i in sorted(indices) if i < len(self.entries)]
+        return [entry for entry in self.entries if norm_tag in entry.tags]
 
     def count_tag_occurrences(self, tag: str) -> int:
         """Count how many entries contain the specified tag."""
-        return len(self.find_entries_with_tag(tag))
+        norm_tag = normalize_tag(tag)
+        from_index = self._search_index.entries_with_tag(norm_tag)
+        if from_index:
+            return len(from_index)
+        return sum(1 for e in self.entries if norm_tag in e.tags)
 
     def rename_tag(
         self, from_tag: str, to_tag: str
@@ -444,9 +466,13 @@ class Journal:
         Rename a tag in all matching entries.
         Returns (count_of_modified_entries, rollback_data)
         rollback_data is {entry_index: {title, body, tags}} for restoring original state.
+
+        Also:
+        - Updates the search index
+        - Pushes a HistoryEntry onto the undo stack (with redo=reverse rename)
         """
-        from_tag_lower = from_tag.lower()
-        to_tag_lower = to_tag.lower()
+        from_tag_norm = normalize_tag(from_tag)
+        to_tag_norm = normalize_tag(to_tag)
         tagsymbols = self.config["tagsymbols"]
         tag_pattern = Entry.tag_regex(tagsymbols)
 
@@ -454,7 +480,7 @@ class Journal:
         rollback_data = {}
 
         for idx, entry in enumerate(self.entries):
-            if from_tag_lower in entry.tags:
+            if from_tag_norm in entry.tags:
                 rollback_data[idx] = {
                     "title": entry.title,
                     "body": entry.body,
@@ -463,7 +489,7 @@ class Journal:
 
                 def replace_tag(match: re.Match) -> str:
                     matched_tag = match.group(1)
-                    if matched_tag.lower() == from_tag_lower:
+                    if normalize_tag(matched_tag) == from_tag_norm:
                         tag_prefix = matched_tag[0]
                         new_tag_body = to_tag[1:] if to_tag[0] in tagsymbols else to_tag
                         return tag_prefix + new_tag_body
@@ -474,17 +500,91 @@ class Journal:
 
                 new_tags = set()
                 for t in entry.tags:
-                    if t.lower() == from_tag_lower:
+                    if normalize_tag(t) == from_tag_norm:
                         tag_prefix = t[0]
                         new_tag_body = to_tag[1:] if to_tag[0] in tagsymbols else to_tag
-                        new_tags.add((tag_prefix + new_tag_body).lower())
+                        new_tags.add(normalize_tag(tag_prefix + new_tag_body))
                     else:
                         new_tags.add(t)
                 entry._tags = list(new_tags)
                 entry.modified = True
                 modified_count += 1
 
+        if modified_count > 0:
+            affected = set(rollback_data.keys())
+            self._search_index.rename_tag_in_index(
+                from_tag, to_tag, affected_indices=affected, verbose=True
+            )
+
+            def _do_undo():
+                self.rollback_tag_rename(rollback_data)
+                reverse_affected = set(rollback_data.keys())
+                self._search_index.rename_tag_in_index(
+                    to_tag, from_tag, affected_indices=reverse_affected
+                )
+
+            def _do_redo():
+                self._redo_tag_rename(from_tag, to_tag, rollback_data, tagsymbols)
+
+            self._history.push(
+                HistoryEntry(
+                    operation="rename_tag",
+                    description=f"Rename tag {from_tag} -> {to_tag}",
+                    entry_count=modified_count,
+                    undo_fn=_do_undo,
+                    redo_fn=_do_redo,
+                    metadata={
+                        "from_tag": from_tag,
+                        "to_tag": to_tag,
+                        "journal_name": self.name,
+                    },
+                )
+            )
+
         return modified_count, rollback_data
+
+    def _redo_tag_rename(
+        self,
+        from_tag: str,
+        to_tag: str,
+        rollback_data: dict[int, dict[str, str]],
+        tagsymbols: str,
+    ) -> None:
+        """Internal helper: re-apply a tag rename (used by redo)."""
+        from_tag_norm = normalize_tag(from_tag)
+        to_tag_norm = normalize_tag(to_tag)
+        tag_pattern = Entry.tag_regex(tagsymbols)
+
+        for idx, original in rollback_data.items():
+            if 0 <= idx < len(self.entries):
+                entry = self.entries[idx]
+
+                def replace_tag(match: re.Match) -> str:
+                    matched_tag = match.group(1)
+                    if normalize_tag(matched_tag) == from_tag_norm:
+                        tag_prefix = matched_tag[0]
+                        new_tag_body = to_tag[1:] if to_tag[0] in tagsymbols else to_tag
+                        return tag_prefix + new_tag_body
+                    return matched_tag
+
+                entry.title = tag_pattern.sub(replace_tag, original["title"])
+                entry.body = tag_pattern.sub(replace_tag, original["body"])
+
+                new_tags = set()
+                for t in original["tags"]:
+                    if normalize_tag(t) == from_tag_norm:
+                        tag_prefix = t[0]
+                        new_tag_body = to_tag[1:] if to_tag[0] in tagsymbols else to_tag
+                        new_tags.add(normalize_tag(tag_prefix + new_tag_body))
+                    else:
+                        new_tags.add(t)
+                entry._tags = list(new_tags)
+                entry.modified = True
+
+        affected = set(rollback_data.keys())
+        self._search_index.rename_tag_in_index(
+            from_tag, to_tag, affected_indices=affected
+        )
 
     def rollback_tag_rename(self, rollback_data: dict[int, dict[str, str]]) -> None:
         """Restore entries to their original state using rollback data."""
@@ -495,6 +595,22 @@ class Journal:
                 entry.body = original["body"]
                 entry._tags = original["tags"]
                 entry.modified = True
+
+    def undo(self) -> bool:
+        """Undo the last journal operation (if any)."""
+        return self._history.undo()
+
+    def redo(self) -> bool:
+        """Redo the last undone operation (if any)."""
+        return self._history.redo()
+
+    @property
+    def can_undo(self) -> bool:
+        return self._history.can_undo
+
+    @property
+    def can_redo(self) -> bool:
+        return self._history.can_redo
 
 
 class LegacyJournal(Journal):

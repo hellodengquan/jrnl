@@ -19,6 +19,7 @@ import tzlocal
 
 from jrnl import __title__
 from jrnl import __version__
+from jrnl.normalization import normalize_tag
 
 from .Entry import Entry
 from .Journal import Journal
@@ -72,7 +73,7 @@ class DayOne(Journal):
                     )
                     entry.uuid = dict_entry["UUID"]
                     entry._tags = [
-                        self.config["tagsymbols"][0] + tag.lower()
+                        normalize_tag(self.config["tagsymbols"][0] + tag)
                         for tag in dict_entry.get("Tags", [])
                     ]
                     if entry._tags:
