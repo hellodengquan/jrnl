@@ -7,6 +7,7 @@ from argparse import Namespace
 
 import pytest
 
+from jrnl.color import colorize
 from jrnl.controller import _backlinks_search_results
 from jrnl.journals import Journal
 from jrnl.journals.FolderJournal import Folder
@@ -491,3 +492,275 @@ class TestFolderJournalBacklinks:
                 assert "%% References:" not in entry.body
                 assert "%% Backlinks" not in entry.title
                 assert "%% Backlinks" not in entry.body
+
+
+class TestBacklinksErrorMessages:
+    """Test error messages for backlinks query."""
+
+    def test_no_entry_found_for_backlinks(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test error message when target entry is not found."""
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        old_entries = journal.entries.copy()
+
+        # Query for non-existent entry
+        args = make_backlinks_args("nonexistent", "entry")
+        _backlinks_search_results(
+            args=args, journal=journal, old_entries=old_entries
+        )
+
+        assert len(journal.entries) == 0
+        assert hasattr(args, "_backlinks_target_found")
+        assert args._backlinks_target_found is False
+        assert args._backlinks_identifier == "nonexistent entry"
+
+    def test_no_backlinks_found_for_entry(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test message when target entry exists but has no backlinks."""
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        old_entries = journal.entries.copy()
+
+        # Query for fifth entry which has no backlinks
+        args = make_backlinks_args("2024-01-05", "11:30")
+        _backlinks_search_results(
+            args=args, journal=journal, old_entries=old_entries
+        )
+
+        assert len(journal.entries) == 0
+        assert hasattr(args, "_backlinks_target_found")
+        assert args._backlinks_target_found is True
+        assert args._backlinks_identifier == "2024-01-05 11:30"
+
+
+class TestEditorBacklinksDisplay:
+    """Test backlinks display in editor."""
+
+    def test_single_entry_with_backlinks_shows_prominent_header(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test that editing a single entry with backlinks shows prominent header."""
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        # Entry 0 has backlinks
+        entry_with_backlinks = journal.entries[0]
+        assert len(entry_with_backlinks.backlinks) > 0
+
+        # Generate editable string with prominent backlinks
+        editable = journal.editable_str_with_backlinks(entry_with_backlinks)
+
+        # Check for prominent header
+        assert "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%" in editable
+        assert "NOTE: This entry is referenced by other entries" in editable
+
+        # Check for numbered backlink list with reference formats
+        assert "[1]" in editable
+        assert "Link:  [[" in editable
+        assert "Quick: [[" in editable
+
+    def test_single_entry_without_backlinks_no_prominent_header(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test that editing a single entry without backlinks doesn't show header."""
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        # Entry 3 (Fourth entry) is referenced but let's use entry 4 (Fifth entry)
+        # which has no backlinks
+        entry_without_backlinks = journal.entries[4]
+        assert len(entry_without_backlinks.backlinks) == 0
+
+        # Generate editable string
+        editable = journal.editable_str_with_backlinks(entry_without_backlinks)
+
+        # Should not have prominent header
+        assert "NOTE: This entry is referenced by other entries" not in editable
+
+    def test_editable_str_with_backlinks_preserves_entry_content(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test editable_str_with_backlinks preserves original entry content."""
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        entry_with_backlinks = journal.entries[0]
+        editable = journal.editable_str_with_backlinks(entry_with_backlinks)
+
+        # Should contain the original entry content
+        assert str(entry_with_backlinks).rstrip() in editable
+
+    def test_editable_str_with_backlinks_meta_stripped_on_parse(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test that prominent header metadata is properly stripped when parsing."""
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        entry_with_backlinks = journal.entries[0]
+        editable = journal.editable_str_with_backlinks(entry_with_backlinks)
+
+        # Parse the editable string
+        parsed_entries = journal._parse(editable)
+
+        # Should have exactly one entry
+        assert len(parsed_entries) == 1
+
+        # Entry content should not contain metadata
+        assert "NOTE: This entry is referenced" not in parsed_entries[0].title
+        assert "NOTE: This entry is referenced" not in parsed_entries[0].body
+
+
+class TestNoColorSupport:
+    """Test NO_COLOR environment variable support for backlinks."""
+
+    def test_colorize_respects_no_color(self, monkeypatch):
+        """Test that colorize returns plain text when NO_COLOR is set."""
+        test_text = "Hello, World!"
+        esc = "\x1b"
+
+        # Without NO_COLOR, should add color codes
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        result = colorize(test_text, "blue")
+        assert esc in result
+
+        # With NO_COLOR=1, should return plain text
+        monkeypatch.setenv("NO_COLOR", "1")
+        result = colorize(test_text, "blue")
+        assert esc not in result
+        assert result == test_text
+
+        # With NO_COLOR=true, should return plain text
+        monkeypatch.setenv("NO_COLOR", "true")
+        result = colorize(test_text, "red", bold=True)
+        assert esc not in result
+        assert result == test_text
+
+        # With empty NO_COLOR, should still use color (per no-color.org spec)
+        monkeypatch.setenv("NO_COLOR", "")
+        result = colorize(test_text, "green")
+        assert esc in result
+
+    def test_entry_pprint_respects_no_color(
+        self, basic_journal_config, test_entries_data, monkeypatch
+    ):
+        """Test that entry pprint respects NO_COLOR for backlinks."""
+        journal = Journal("test", **basic_journal_config)
+        # Enable colors for this test
+        journal.config["colors"] = {
+            "body": "none",
+            "date": "black",
+            "tags": "yellow",
+            "title": "cyan",
+            "references": "blue",
+            "backlinks": "magenta",
+        }
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        entry_with_backlinks = journal.entries[0]
+        esc = "\x1b"
+
+        # Without NO_COLOR
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        output = entry_with_backlinks.pprint()
+        # Should contain some color codes for date
+        assert esc in output
+
+        # With NO_COLOR
+        monkeypatch.setenv("NO_COLOR", "1")
+        output = entry_with_backlinks.pprint()
+        # Should not contain ANSI escape codes
+        assert esc not in output
+        # But should still contain the backlinks text
+        assert "Backlinks:" in output
+
+    def test_highlight_references_respects_no_color(
+        self, basic_journal_config, test_entries_data, monkeypatch
+    ):
+        """Test that reference highlighting respects NO_COLOR."""
+        from jrnl.color import highlight_references
+
+        journal = Journal("test", **basic_journal_config)
+        journal.config["highlight"] = True
+        journal.config["colors"]["references"] = "blue"
+
+        entry = journal.new_entry(
+            "See [[First entry]] for details.", date=datetime.datetime(2024, 1, 10)
+        )
+        entry._parse_text()
+
+        test_text = "Reference to [[First entry]] here."
+        esc = "\x1b"
+
+        # Without NO_COLOR - with a valid color it should highlight
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        result = highlight_references(entry, test_text, "none")
+        # Should contain color codes because references color is set to blue
+        assert esc in result
+
+        # With NO_COLOR - should not add any colors
+        monkeypatch.setenv("NO_COLOR", "1")
+        result = highlight_references(entry, test_text, "none")
+        assert esc not in result
+        assert "[[First entry]]" in result

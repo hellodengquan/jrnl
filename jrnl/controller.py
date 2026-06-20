@@ -261,6 +261,26 @@ def _print_entries_found_count(count: int, args: "Namespace") -> None:
             print_msg(Message(MsgText.NothingToModify, MsgStyle.WARNING))
         elif args.delete:
             print_msg(Message(MsgText.NothingToDelete, MsgStyle.WARNING))
+        elif args.backlinks:
+            # Handle backlinks-specific messages
+            default_id = " ".join(args.backlinks)
+            identifier = getattr(args, "_backlinks_identifier", default_id)
+            if not getattr(args, "_backlinks_target_found", False):
+                print_msg(
+                    Message(
+                        MsgText.NoEntryFoundForBacklinks,
+                        MsgStyle.WARNING,
+                        {"identifier": identifier},
+                    )
+                )
+            else:
+                print_msg(
+                    Message(
+                        MsgText.NoBacklinksFound,
+                        MsgStyle.NORMAL,
+                        {"identifier": identifier},
+                    )
+                )
         else:
             print_msg(Message(MsgText.NoEntriesFound, MsgStyle.NORMAL))
         return
@@ -301,9 +321,22 @@ def _edit_search_results(
     # separate entries we are not editing
     other_entries = _other_entries(journal, old_entries)
 
+    # Determine editable content: if editing a single entry with backlinks,
+    # show them prominently at the top for better interaction
+    if len(journal.entries) == 1 and hasattr(journal, "editable_str_with_backlinks"):
+        display_references = config.get("display_references", True)
+        if display_references and journal.entries[0].backlinks:
+            editable_content = journal.editable_str_with_backlinks(
+                journal.entries[0]
+            )
+        else:
+            editable_content = journal.editable_str()
+    else:
+        editable_content = journal.editable_str()
+
     # Send user to the editor
     try:
-        edited = get_text_from_editor(config, journal.editable_str())
+        edited = get_text_from_editor(config, editable_content)
     except JrnlException as e:
         if e.has_message_text(MsgText.NoTextReceived):
             raise JrnlException(
@@ -402,6 +435,8 @@ def _backlinks_search_results(
     """
     # Join the identifier parts (nargs="+") into a single string
     ref_identifier = " ".join(args.backlinks)
+    # Store the identifier on args for later display
+    args._backlinks_identifier = ref_identifier
 
     logging.debug(f"Searching backlinks for identifier: '{ref_identifier}'")
 
@@ -416,8 +451,10 @@ def _backlinks_search_results(
     if target_entry is None:
         logging.debug(f"No entry found for identifier: '{ref_identifier}'")
         journal.entries = []
+        args._backlinks_target_found = False
         return
 
+    args._backlinks_target_found = True
     logging.debug(f"Found target entry: {target_entry}")
     logging.debug(f"Target has {len(target_entry.backlinks)} backlinks")
 

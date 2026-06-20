@@ -1,6 +1,7 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+import os
 import re
 from string import punctuation
 from string import whitespace
@@ -17,10 +18,26 @@ if on_windows():
     colorama.init()
 
 
+def _should_use_color() -> bool:
+    """Check if NO_COLOR environment variable is set.
+
+    Following https://no-color.org/ convention: if the NO_COLOR environment
+    variable exists and is not an empty string, color output should be disabled.
+    """
+    no_color = os.environ.get("NO_COLOR")
+    return no_color is None or no_color == ""
+
+
 def colorize(string: str, color: str, bold: bool = False) -> str:
     """Returns the string colored with colorama.Fore.color. If the color set by
     the user is "NONE" or the color doesn't exist in the colorama.Fore attributes,
-    it returns the string without any modification."""
+    it returns the string without any modification.
+
+    Respects NO_COLOR environment variable per https://no-color.org/ convention.
+    """
+    if not _should_use_color():
+        return string
+
     color_escape = getattr(colorama.Fore, color.upper(), None)
     if not color_escape:
         return string

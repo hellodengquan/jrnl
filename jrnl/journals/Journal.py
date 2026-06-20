@@ -515,6 +515,58 @@ class Journal:
 
         return "\n".join(lines) + "\n"
 
+    def editable_str_with_backlinks(self, entry: "Entry") -> str:
+        """Generate editable string for a single entry with prominent backlinks display.
+
+        Used when editing a single entry that is referenced by other entries.
+        Shows backlinks at the top with clear formatting for the editor.
+        """
+        display_references = self.config.get("display_references", True)
+
+        lines = []
+
+        # If there are backlinks, show them prominently at the top
+        if display_references and entry.backlinks:
+            lines.append("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+            lines.append("%% NOTE: This entry is referenced by other entries.")
+            lines.append("%% Use the [[date]] references below to link back.")
+            lines.append("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+
+            backlink_meta = self._format_backlinks_meta_prominent(entry)
+            lines.append(backlink_meta)
+            lines.append("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+            lines.append("")
+
+        # Add the entry content
+        lines.append(str(entry).rstrip())
+
+        # Add regular metadata at the bottom too
+        if display_references:
+            ref_meta = self._format_references_meta(entry)
+            backlink_meta = self._format_backlinks_meta(entry)
+            if ref_meta:
+                lines.append(ref_meta)
+            if backlink_meta:
+                lines.append(backlink_meta)
+
+        return "\n".join(lines) + "\n"
+
+    def _format_backlinks_meta_prominent(self, entry: "Entry") -> str:
+        """Formats backlinks in a more prominent, easy-to-use format for the editor."""
+        if not entry.backlinks:
+            return ""
+
+        lines = []
+        for i, source in enumerate(entry.backlinks, 1):
+            source_date = source.date.strftime(self.config["timeformat"])
+            source_title = source.title.strip()
+            lines.append(f"%% [{i}] {source_date}")
+            lines.append(f"%%     Title: {source_title}")
+            lines.append(f"%%     Link:  [[{source_date}]]")
+            lines.append(f"%%     Quick: [[{source_date[:10]}]]")
+
+        return "\n".join(lines)
+
     def _format_references_meta(self, entry: "Entry") -> str:
         """Formats outgoing references as editor metadata comments."""
         if not entry.references:
@@ -532,7 +584,11 @@ class Journal:
         return "\n".join(lines)
 
     def _format_backlinks_meta(self, entry: "Entry") -> str:
-        """Formats incoming backlinks as editor metadata comments."""
+        """Formats incoming backlinks as editor metadata comments.
+
+        Includes both readable info and copy-pasteable reference syntax
+        so users can easily reference backlinking entries from the editor.
+        """
         if not entry.backlinks:
             return ""
 
@@ -540,7 +596,9 @@ class Journal:
         for source in entry.backlinks:
             source_date = source.date.strftime(self.config["timeformat"])
             source_title = source.title.strip()
+            # Show both readable info and copy-pasteable [[date]] reference format
             lines.append(f"%%   ← {source_date} {source_title}")
+            lines.append(f"%%     Reference: [[{source_date}]]")
         return "\n".join(lines)
 
     def parse_editable_str(self, edited: str) -> None:

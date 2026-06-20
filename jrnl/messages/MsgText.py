@@ -249,6 +249,8 @@ class MsgText(Enum):
     NoEntriesFound = "no entries found"
     EntryFoundCountSingular = "{num} entry found"
     EntryFoundCountPlural = "{num} entries found"
+    NoEntryFoundForBacklinks = "no entry found matching '{identifier}'"
+    NoBacklinksFound = "no entries reference '{identifier}'"
 
     # --- Formats --- #
     HeadingsPastH6 = """
