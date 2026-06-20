@@ -46,6 +46,10 @@ def expected_args(**kwargs):
         "text": [],
         "config_override": [],
         "config_file_path": "",
+        "from_tag": None,
+        "to_tag": None,
+        "dry_run": False,
+        "all_journals": False,
     }
     return {**default_args, **kwargs}
 

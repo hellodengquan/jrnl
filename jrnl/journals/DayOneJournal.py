@@ -217,3 +217,14 @@ class DayOne(Journal):
                             entry._tags.extend(tags_not_in_body.sort())
                     self._update_old_entry(old_entry, entry)
                     break
+
+    def rename_tag(
+        self, from_tag: str, to_tag: str
+    ) -> tuple[int, dict[int, dict[str, str]]]:
+        """Rename tag in DayOne journal - tags stored separately in plist."""
+        modified_count, rollback_data = super().rename_tag(from_tag, to_tag)
+        for idx in rollback_data:
+            if 0 <= idx < len(self.entries):
+                if self.entries[idx]._tags:
+                    self.entries[idx]._tags.sort()
+        return modified_count, rollback_data

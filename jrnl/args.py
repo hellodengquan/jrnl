@@ -9,6 +9,7 @@ from jrnl.commands import postconfig_decrypt
 from jrnl.commands import postconfig_encrypt
 from jrnl.commands import postconfig_import
 from jrnl.commands import postconfig_list
+from jrnl.commands import postconfig_rename_tag
 from jrnl.commands import preconfig_diagnostic
 from jrnl.commands import preconfig_version
 from jrnl.output import deprecated_cmd
@@ -177,6 +178,53 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
 
         --format [{util.oxford_list(IMPORT_FORMATS)}] (default: jrnl)
         """,
+    )
+    standalone.add_argument(
+        "--rename-tag",
+        action="store_const",
+        const=postconfig_rename_tag,
+        dest="postconfig_cmd",
+        help="""
+        Rename a tag across multiple entries or journals.
+
+        Required parameters:
+
+        --from-tag SOURCE_TAG    Tag to rename (e.g. @oldtag)
+        --to-tag DEST_TAG        New tag name (e.g. @newtag)
+
+        Optional parameters:
+
+        --dry-run                Scan and preview changes without writing
+        --all-journals           Apply across ALL configured journals
+        """,
+    )
+    standalone.add_argument(
+        "--from-tag",
+        metavar="TAG",
+        dest="from_tag",
+        help="Source tag to rename (use with --rename-tag)",
+        default=None,
+    )
+    standalone.add_argument(
+        "--to-tag",
+        metavar="TAG",
+        dest="to_tag",
+        help="Destination tag name (use with --rename-tag)",
+        default=None,
+    )
+    standalone.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        help="Preview changes without modifying data (use with --rename-tag)",
+        default=False,
+    )
+    standalone.add_argument(
+        "--all-journals",
+        dest="all_journals",
+        action="store_true",
+        help="Apply operation across all journals (use with --rename-tag)",
+        default=False,
     )
     standalone.add_argument(
         "--file",

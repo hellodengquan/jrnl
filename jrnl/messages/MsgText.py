@@ -284,6 +284,83 @@ class MsgText(Enum):
 
     KeyringRetrievalFailure = "Failed to retrieve keyring"
 
+    # --- Tag Rename --- #
+    RenameTagMissingArgs = """
+        --rename-tag requires both --from-tag and --to-tag arguments.
+        Usage: jrnl --rename-tag --from-tag @oldtag --to-tag @newtag
+        """
+
+    RenameTagSameSourceDest = """
+        Source tag ({from_tag}) and destination tag ({to_tag}) are the same.
+        No changes needed.
+        """
+
+    RenameTagInvalidFormat = """
+        Invalid tag format: {tag}. Tags must start with configured tag symbols ({tagsymbols}).
+        """
+
+    RenameTagJournalEncrypted = """
+        Skipping encrypted journal "{journal_name}" - tag rename not supported on encrypted journals.
+        """
+
+    RenameTagDestExists = """
+        Destination tag {to_tag} already exists in journal "{journal_name}" ({count} occurrence(s)).
+        Use caution as merging may cause data ambiguity.
+        """
+
+    RenameTagScanHeader = """
+        Scanning journals for tag "{from_tag}" to rename to "{to_tag}":
+        """
+
+    RenameTagJournalSummary = """
+          Journal "{journal_name}": {count} entry(ies) will be affected
+        """
+
+    RenameTagSampleEntry = """
+            [{date}] {title}
+        """
+
+    RenameTagNoEntriesFound = """
+        No entries found with tag {from_tag} across scanned journals.
+        """
+
+    RenameTagDryRunComplete = """
+        Dry run complete. No changes were made.
+        Re-run without --dry-run to apply the changes.
+        """
+
+    RenameTagConfirmPrompt = """
+        Proceed with renaming tag "{from_tag}" to "{to_tag}" across {total_entries} entry(ies) in {journal_count} journal(s)?
+        """
+
+    RenameTagAborted = """
+        Tag rename aborted by user. No changes were made.
+        """
+
+    RenameTagSuccessJournal = """
+        Successfully renamed tag in journal "{journal_name}": {count} entry(ies) modified.
+        """
+
+    RenameTagRollbackJournal = """
+        Rolling back changes for journal "{journal_name}"...
+        """
+
+    RenameTagRollbackSuccess = """
+        Rollback successful for journal "{journal_name}".
+        """
+
+    RenameTagRollbackFailed = """
+        WARNING: Rollback FAILED for journal "{journal_name}". Data may be in inconsistent state!
+        """
+
+    RenameTagComplete = """
+        Tag rename complete. Modified {total_entries} entry(ies) across {journal_count} journal(s).
+        """
+
+    RenameTagError = """
+        Error during tag rename: {error}
+        """
+
     # --- Deprecation --- #
     DeprecatedCommand = """
         The command {old_cmd} is deprecated and will be removed from jrnl soon.

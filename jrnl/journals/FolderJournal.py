@@ -156,3 +156,20 @@ class Folder(Journal):
                 and child.is_file()
             ):
                 yield str(child)
+
+    def rename_tag(
+        self, from_tag: str, to_tag: str
+    ) -> tuple[int, dict[int, dict[str, str]]]:
+        """Rename tag and track modified dates for Folder journal."""
+        modified_count, rollback_data = super().rename_tag(from_tag, to_tag)
+        for idx in rollback_data:
+            if 0 <= idx < len(self.entries):
+                self._diff_entry_dates.append(self.entries[idx].date)
+        return modified_count, rollback_data
+
+    def rollback_tag_rename(self, rollback_data: dict[int, dict[str, str]]) -> None:
+        """Rollback tag rename and track affected dates for Folder journal."""
+        for idx in rollback_data:
+            if 0 <= idx < len(self.entries):
+                self._diff_entry_dates.append(self.entries[idx].date)
+        super().rollback_tag_rename(rollback_data)

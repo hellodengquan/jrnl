@@ -423,6 +423,74 @@ class Journal:
             "modified": len([e for e in self.entries if e.modified]),
         }
 
+    def find_entries_with_tag(self, tag: str) -> list["Entry"]:
+        """Find all entries containing the specified tag."""
+        tag_lower = tag.lower()
+        return [entry for entry in self.entries if tag_lower in entry.tags]
+
+    def count_tag_occurrences(self, tag: str) -> int:
+        """Count how many entries contain the specified tag."""
+        return len(self.find_entries_with_tag(tag))
+
+    def rename_tag(
+        self, from_tag: str, to_tag: str
+    ) -> tuple[int, dict[int, dict[str, str]]]:
+        """
+        Rename a tag in all matching entries.
+        Returns (count_of_modified_entries, rollback_data)
+        rollback_data is {entry_index: {title, body, tags}} for restoring original state.
+        """
+        from_tag_lower = from_tag.lower()
+        to_tag_lower = to_tag.lower()
+        tagsymbols = self.config["tagsymbols"]
+        tag_pattern = Entry.tag_regex(tagsymbols)
+
+        modified_count = 0
+        rollback_data = {}
+
+        for idx, entry in enumerate(self.entries):
+            if from_tag_lower in entry.tags:
+                rollback_data[idx] = {
+                    "title": entry.title,
+                    "body": entry.body,
+                    "tags": list(entry.tags),
+                }
+
+                def replace_tag(match: re.Match) -> str:
+                    matched_tag = match.group(1)
+                    if matched_tag.lower() == from_tag_lower:
+                        tag_prefix = matched_tag[0]
+                        new_tag_body = to_tag[1:] if to_tag[0] in tagsymbols else to_tag
+                        return tag_prefix + new_tag_body
+                    return matched_tag
+
+                entry.title = tag_pattern.sub(replace_tag, entry.title)
+                entry.body = tag_pattern.sub(replace_tag, entry.body)
+
+                new_tags = set()
+                for t in entry.tags:
+                    if t.lower() == from_tag_lower:
+                        tag_prefix = t[0]
+                        new_tag_body = to_tag[1:] if to_tag[0] in tagsymbols else to_tag
+                        new_tags.add((tag_prefix + new_tag_body).lower())
+                    else:
+                        new_tags.add(t)
+                entry._tags = list(new_tags)
+                entry.modified = True
+                modified_count += 1
+
+        return modified_count, rollback_data
+
+    def rollback_tag_rename(self, rollback_data: dict[int, dict[str, str]]) -> None:
+        """Restore entries to their original state using rollback data."""
+        for idx, original in rollback_data.items():
+            if 0 <= idx < len(self.entries):
+                entry = self.entries[idx]
+                entry.title = original["title"]
+                entry.body = original["body"]
+                entry._tags = original["tags"]
+                entry.modified = True
+
 
 class LegacyJournal(Journal):
     """Legacy class to support opening journals formatted with the jrnl 1.x
