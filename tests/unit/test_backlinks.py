@@ -585,8 +585,9 @@ class TestEditorBacklinksDisplay:
 
         # Check for numbered backlink list with reference formats
         assert "[1]" in editable
-        assert "Link:  [[" in editable
-        assert "Quick: [[" in editable
+        assert "←" in editable  # Same arrow style as pprint output
+        assert "Reference: [[" in editable
+        assert "Quick ref: [[" in editable
 
     def test_single_entry_without_backlinks_no_prominent_header(
         self, basic_journal_config, test_entries_data
@@ -662,6 +663,53 @@ class TestEditorBacklinksDisplay:
         # Entry content should not contain metadata
         assert "NOTE: This entry is referenced" not in parsed_entries[0].title
         assert "NOTE: This entry is referenced" not in parsed_entries[0].body
+
+    def test_editor_format_aligns_with_pprint_style(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test that editor metadata uses same formatting structure as pprint output.
+
+        Both should use consistent arrow format (← for backlinks, → for references)
+        and same date+title ordering to keep the visual style aligned between
+        `jrnl --view` and the editor interface.
+        """
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        entry_with_backlinks = journal.entries[0]
+
+        # Get plain text backlinks from Entry (same style as pprint plain=True)
+        plain_backlinks = entry_with_backlinks._format_backlinks(plain=True)
+
+        # Get editor metadata backlinks
+        editor_meta = journal._format_backlinks_meta(entry_with_backlinks)
+
+        # Both should contain the same entries with ← arrow prefix
+        for line in plain_backlinks.split("\n"):
+            line = line.strip()
+            if line.startswith("←"):
+                # The core content after the arrow should appear in the editor metadata
+                core_content = line
+                assert core_content in editor_meta, (
+                    f"Expected '{core_content}' in editor meta for style alignment"
+                )
+
+        # Both should use the same arrow symbols
+        assert "←" in plain_backlinks
+        assert "←" in editor_meta
+
+        # Editor meta should be prefixed with %% as metadata marker
+        for line in editor_meta.split("\n"):
+            if line.strip():
+                assert line.lstrip().startswith("%%")
 
 
 class TestNoColorSupport:
@@ -764,3 +812,128 @@ class TestNoColorSupport:
         result = highlight_references(entry, test_text, "none")
         assert esc not in result
         assert "[[First entry]]" in result
+
+    def test_highlight_tags_respects_no_color(
+        self, basic_journal_config, monkeypatch
+    ):
+        """Test that tag background highlighting respects NO_COLOR."""
+        from jrnl.color import highlight_tags_with_background_color
+
+        journal = Journal("test", **basic_journal_config)
+        journal.config["highlight"] = True
+        journal.config["colors"]["tags"] = "yellow"
+        journal.config["colors"]["title"] = "cyan"
+
+        entry = journal.new_entry(
+            "Hello @world this is a #test.", date=datetime.datetime(2024, 1, 10)
+        )
+        entry._parse_text()
+
+        test_text = "Hello @world this is a #test."
+        esc = "\x1b"
+
+        # Without NO_COLOR - should add colors
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        result = highlight_tags_with_background_color(entry, test_text, "none")
+        assert esc in result, f"Expected color codes in: {repr(result)}"
+
+        # With NO_COLOR - should return plain text without colors
+        monkeypatch.setenv("NO_COLOR", "1")
+        result = highlight_tags_with_background_color(entry, test_text, "none")
+        assert esc not in result
+        assert "@world" in result
+        assert "#test" in result
+
+
+class TestBacklinksExitCodes:
+    """Test exit codes for backlinks CLI queries."""
+
+    def test_status_code_success(self, basic_journal_config, test_entries_data):
+        """Test status code 0 when backlinks are found."""
+        from jrnl.controller import _determine_status_code
+
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        old_entries = journal.entries.copy()
+        args = make_backlinks_args("2024-01-01")
+        _backlinks_search_results(
+            args=args, journal=journal, old_entries=old_entries
+        )
+
+        # Found backlinks - should return 0
+        assert len(journal.entries) > 0
+        assert _determine_status_code(args, journal) == 0
+
+    def test_status_code_target_not_found(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test status code 1 when target entry is not found."""
+        from jrnl.controller import _determine_status_code
+
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        old_entries = journal.entries.copy()
+        args = make_backlinks_args("nonexistent", "entry")
+        _backlinks_search_results(
+            args=args, journal=journal, old_entries=old_entries
+        )
+
+        # Target not found - should return 1
+        assert getattr(args, "_backlinks_target_found", False) is False
+        assert _determine_status_code(args, journal) == 1
+
+    def test_status_code_no_backlinks(self, basic_journal_config, test_entries_data):
+        """Test status code 2 when target exists but has no backlinks."""
+        from jrnl.controller import _determine_status_code
+
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        old_entries = journal.entries.copy()
+        # Fifth entry exists but has no backlinks
+        args = make_backlinks_args("2024-01-05", "11:30")
+        _backlinks_search_results(
+            args=args, journal=journal, old_entries=old_entries
+        )
+
+        # Target found but no backlinks - should return 2
+        assert getattr(args, "_backlinks_target_found", False) is True
+        assert len(journal.entries) == 0
+        assert _determine_status_code(args, journal) == 2
+
+    def test_status_code_normal_operation(self, basic_journal_config):
+        """Test status code 0 for normal operations (non-backlinks)."""
+        from jrnl.controller import _determine_status_code
+
+        journal = Journal("test", **basic_journal_config)
+        args = make_backlinks_args()
+        args.backlinks = None  # Not a backlinks query
+
+        # Normal operation - should return 0
+        assert _determine_status_code(args, journal) == 0

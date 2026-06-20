@@ -53,12 +53,16 @@ def highlight_tags_with_background_color(
     """
     Takes a string and colorizes the tags in it based upon the config value for
     color.tags, while colorizing the rest of the text based on `color`.
+    Respects NO_COLOR environment variable per https://no-color.org/ convention.
     :param entry: Entry object, for access to journal config
     :param text: Text to be colorized
     :param color: Color for non-tag text, passed to colorize()
     :param is_title: Boolean flag indicating if the text is a title or not
     :return: Colorized str
     """
+    # Early return if NO_COLOR is set - skip all colorization
+    if not _should_use_color():
+        return text
 
     def colorized_text_generator(fragments):
         """Efficiently generate colorized tags / text from text fragments.
@@ -105,6 +109,7 @@ def highlight_references(
 ) -> str:
     """
     Takes a string and highlights references [[...]] in it.
+    Respects NO_COLOR environment variable per https://no-color.org/ convention.
     :param entry: Entry object, for access to journal config
     :param text: Text to be colorized
     :param color: Color for non-reference text
@@ -112,6 +117,10 @@ def highlight_references(
     :return: Colorized str
     """
     from jrnl.journals.Entry import Entry
+
+    # Early return if NO_COLOR is set - skip all colorization
+    if not _should_use_color():
+        return text
 
     config = entry.journal.config
     ref_color = config["colors"].get("references", "blue")

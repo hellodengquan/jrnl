@@ -77,7 +77,7 @@ def run(args: "Namespace"):
 
     if _is_append_mode(**kwargs):
         append_mode(**kwargs)
-        return
+        return 0
 
     # If not append mode, then we're in search mode (only 2 modes exist)
     search_mode(**kwargs)
@@ -97,6 +97,25 @@ def run(args: "Namespace"):
     else:
         # display only occurs if no other action occurs
         _display_search_results(**kwargs)
+
+    # Return appropriate status code for script integration
+    return _determine_status_code(args, journal)
+
+
+def _determine_status_code(args: "Namespace", journal: "Journal") -> int:
+    """Determine exit status code based on operation result.
+
+    Returns:
+        0 - Success: entries found or normal operation
+        1 - Target entry not found (for --backlinks)
+        2 - Target entry found but no backlinks reference it (for --backlinks)
+    """
+    if args.backlinks:
+        if not getattr(args, "_backlinks_target_found", False):
+            return 1
+        if len(journal.entries) == 0:
+            return 2
+    return 0
 
 
 def _perform_actions_on_search_results(**kwargs):

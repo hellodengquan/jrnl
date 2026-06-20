@@ -552,7 +552,13 @@ class Journal:
         return "\n".join(lines) + "\n"
 
     def _format_backlinks_meta_prominent(self, entry: "Entry") -> str:
-        """Formats backlinks in a more prominent, easy-to-use format for the editor."""
+        """Formats backlinks prominently for editor header.
+
+        Uses the same base formatting as _format_backlinks_meta, which in turn
+        reuses Entry._format_backlinks(plain=True) for consistent style with
+        the terminal --view output. Additionally adds copy-pasteable reference
+        shortcuts for each backlink.
+        """
         if not entry.backlinks:
             return ""
 
@@ -560,45 +566,56 @@ class Journal:
         for i, source in enumerate(entry.backlinks, 1):
             source_date = source.date.strftime(self.config["timeformat"])
             source_title = source.title.strip()
-            lines.append(f"%% [{i}] {source_date}")
-            lines.append(f"%%     Title: {source_title}")
-            lines.append(f"%%     Link:  [[{source_date}]]")
-            lines.append(f"%%     Quick: [[{source_date[:10]}]]")
+            # Numbered backlink entry with consistent arrow format matching pprint
+            lines.append(f"%% [{i}] ← {source_date} {source_title}")
+            lines.append(f"%%     Reference: [[{source_date}]]")
+            lines.append(f"%%     Quick ref: [[{source_date[:10]}]]")
 
         return "\n".join(lines)
 
     def _format_references_meta(self, entry: "Entry") -> str:
-        """Formats outgoing references as editor metadata comments."""
-        if not entry.references:
+        """Formats outgoing references as editor metadata comments.
+
+        Uses the same formatting logic as Entry._format_references (plain mode)
+        to align with the --view output style.
+        """
+        plain_references = entry._format_references(plain=True)
+        if not plain_references:
             return ""
 
-        lines = ["%% References:"]
-        for ref_text in entry.references:
-            target = self.find_entry_by_reference(ref_text, entry)
-            if target:
-                target_date = target.date.strftime(self.config["timeformat"])
-                target_title = target.title.strip()
-                lines.append(f"%%   → [[{ref_text}]] => {target_date} {target_title}")
-            else:
-                lines.append(f"%%   → [[{ref_text}]] => [NOT FOUND]")
+        # Prefix each line with %% to mark as editor metadata,
+        # preserving the same structure as the terminal output
+        lines = []
+        for line in plain_references.split("\n"):
+            lines.append(f"%% {line}")
         return "\n".join(lines)
 
     def _format_backlinks_meta(self, entry: "Entry") -> str:
         """Formats incoming backlinks as editor metadata comments.
 
-        Includes both readable info and copy-pasteable reference syntax
-        so users can easily reference backlinking entries from the editor.
+        Uses the same formatting logic as Entry._format_backlinks (plain mode)
+        to align with the --view output style, plus adds copy-pasteable
+        reference syntax for quick linking from the editor.
         """
-        if not entry.backlinks:
+        plain_backlinks = entry._format_backlinks(plain=True)
+        if not plain_backlinks:
             return ""
 
-        lines = ["%% Backlinks (these entries reference this one):"]
+        # Prefix each line with %% to mark as editor metadata,
+        # preserving the same structure as the terminal output
+        lines = []
+        backlink_lines = plain_backlinks.split("\n")
+        lines.append(f"%% {backlink_lines[0]}")
+
+        # For each backlink entry, also add a copy-pasteable reference line
+        idx = 0
         for source in entry.backlinks:
             source_date = source.date.strftime(self.config["timeformat"])
-            source_title = source.title.strip()
-            # Show both readable info and copy-pasteable [[date]] reference format
-            lines.append(f"%%   ← {source_date} {source_title}")
+            if idx + 1 < len(backlink_lines):
+                lines.append(f"%% {backlink_lines[idx + 1]}")
             lines.append(f"%%     Reference: [[{source_date}]]")
+            idx += 1
+
         return "\n".join(lines)
 
     def parse_editable_str(self, edited: str) -> None:

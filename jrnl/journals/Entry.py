@@ -243,8 +243,12 @@ class Entry:
                 result += "\n" + backlinks_info
             return result + "\n"
 
-    def _format_references(self) -> str:
-        """Formats outgoing references for display."""
+    def _format_references(self, plain: bool = False) -> str:
+        """Formats outgoing references for display.
+
+        Args:
+            plain: If True, return text without ANSI colors.
+        """
         if not self.references:
             return ""
 
@@ -255,9 +259,11 @@ class Entry:
             if target:
                 target_date = target.date.strftime(self.journal.config["timeformat"])
                 target_title = target.title.strip()
-                label = colorize(f"→ {target_date} {target_title}", ref_color)
+                text = f"→ {target_date} {target_title}"
+                label = text if plain else colorize(text, ref_color)
             else:
-                label = colorize(f"→ [[{ref_text}]]", "red")
+                text = f"→ [[{ref_text}]]"
+                label = text if plain else colorize(text, "red")
             resolved_refs.append(label)
 
         if not resolved_refs:
@@ -265,12 +271,17 @@ class Entry:
 
         indent_char = self.journal.config["indent_character"]
         indent = indent_char.rstrip() + " " if indent_char else ""
-        header = colorize("References:", ref_color, bold=True)
+        header_text = "References:"
+        header = header_text if plain else colorize(header_text, ref_color, bold=True)
         lines = [header] + [indent + ref for ref in resolved_refs]
         return "\n".join(lines)
 
-    def _format_backlinks(self) -> str:
-        """Formats incoming backlinks for display."""
+    def _format_backlinks(self, plain: bool = False) -> str:
+        """Formats incoming backlinks for display.
+
+        Args:
+            plain: If True, return text without ANSI colors.
+        """
         if not self.backlinks:
             return ""
 
@@ -279,7 +290,8 @@ class Entry:
         for source in self.backlinks:
             source_date = source.date.strftime(self.journal.config["timeformat"])
             source_title = source.title.strip()
-            label = colorize(f"← {source_date} {source_title}", backlink_color)
+            text = f"← {source_date} {source_title}"
+            label = text if plain else colorize(text, backlink_color)
             resolved_backlinks.append(label)
 
         if not resolved_backlinks:
@@ -287,7 +299,10 @@ class Entry:
 
         indent_char = self.journal.config["indent_character"]
         indent = indent_char.rstrip() + " " if indent_char else ""
-        header = colorize("Backlinks:", backlink_color, bold=True)
+        header_text = "Backlinks:"
+        header = header_text if plain else colorize(
+            header_text, backlink_color, bold=True
+        )
         lines = [header] + [indent + bl for bl in resolved_backlinks]
         return "\n".join(lines)
 
