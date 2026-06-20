@@ -262,61 +262,100 @@ class Journal:
 
         exclude is a list of the tags which should not appear in the results.
         entry is kept if any tag is present, unless they appear in exclude."""
+        predicates = []
+
         self.search_tags = {tag.lower() for tag in tags}
+        predicates.append(self._make_tag_filter(tags, strict))
+
         excluded_tags = {tag.lower() for tag in exclude}
+        predicates.append(self._make_exclude_tag_filter(excluded_tags))
+
         end_date = time.parse(end_date, inclusive=True)
         start_date = time.parse(start_date)
+        predicates.append(self._make_date_range_filter(start_date, end_date))
 
-        # If strict mode is on, all tags have to be present in entry
-        has_tags = (
-            self.search_tags.issubset if strict else self.search_tags.intersection
+        predicates.append(self._make_starred_filter(starred, exclude_starred))
+
+        predicates.append(self._make_tagged_filter(tagged, exclude_tagged))
+
+        compare_d = (
+            time.parse(f"{month or 1}.{day or 1}.{year or 1}")
+            if month or day or year
+            else None
         )
+        predicates.append(self._make_date_parts_filter(month, day, year, compare_d))
 
-        def excluded(tags):
-            return 0 < len([tag for tag in tags if tag in excluded_tags])
-
-        if contains:
-            contains_lower = [substring.casefold() for substring in contains]
-
-        # Create datetime object for comparison below
-        # this approach allows various formats
-        if month or day or year:
-            compare_d = time.parse(f"{month or 1}.{day or 1}.{year or 1}")
+        contains_lower = [substring.casefold() for substring in contains] if contains else []
+        predicates.append(self._make_contains_filter(contains, contains_lower, strict))
 
         result = [
-            entry
-            for entry in self.entries
-            if (not tags or has_tags(entry.tags))
-            and (not (starred or exclude_starred) or entry.starred == starred)
-            and (not (tagged or exclude_tagged) or bool(entry.tags) == tagged)
-            and (not month or entry.date.month == compare_d.month)
-            and (not day or entry.date.day == compare_d.day)
-            and (not year or entry.date.year == compare_d.year)
-            and (not start_date or entry.date >= start_date)
-            and (not end_date or entry.date <= end_date)
-            and (not exclude or not excluded(entry.tags))
-            and (
-                not contains
-                or (
-                    strict
-                    and all(
-                        substring in entry.title.casefold()
-                        or substring in entry.body.casefold()
-                        for substring in contains_lower
-                    )
-                )
-                or (
-                    not strict
-                    and any(
-                        substring in entry.title.casefold()
-                        or substring in entry.body.casefold()
-                        for substring in contains_lower
-                    )
-                )
-            )
+            entry for entry in self.entries if all(pred(entry) for pred in predicates)
         ]
 
         self.entries = result
+
+    @staticmethod
+    def _make_tag_filter(tags, strict):
+        search_tags = {tag.lower() for tag in tags}
+        if not search_tags:
+            return lambda _: True
+        match_op = search_tags.issubset if strict else search_tags.intersection
+        return lambda entry: bool(match_op(entry.tags))
+
+    @staticmethod
+    def _make_exclude_tag_filter(excluded_tags):
+        if not excluded_tags:
+            return lambda _: True
+        return lambda entry: not any(tag in excluded_tags for tag in entry.tags)
+
+    @staticmethod
+    def _make_date_range_filter(start_date, end_date):
+        predicates = []
+        if start_date:
+            predicates.append(lambda entry: entry.date >= start_date)
+        if end_date:
+            predicates.append(lambda entry: entry.date <= end_date)
+        if not predicates:
+            return lambda _: True
+        return lambda entry: all(p(entry) for p in predicates)
+
+    @staticmethod
+    def _make_starred_filter(starred, exclude_starred):
+        if not (starred or exclude_starred):
+            return lambda _: True
+        return lambda entry: entry.starred == starred
+
+    @staticmethod
+    def _make_tagged_filter(tagged, exclude_tagged):
+        if not (tagged or exclude_tagged):
+            return lambda _: True
+        return lambda entry: bool(entry.tags) == tagged
+
+    @staticmethod
+    def _make_date_parts_filter(month, day, year, compare_d):
+        if not (month or day or year):
+            return lambda _: True
+
+        def predicate(entry):
+            if month and entry.date.month != compare_d.month:
+                return False
+            if day and entry.date.day != compare_d.day:
+                return False
+            if year and entry.date.year != compare_d.year:
+                return False
+            return True
+
+        return predicate
+
+    @staticmethod
+    def _make_contains_filter(contains, contains_lower, strict):
+        if not contains:
+            return lambda _: True
+        combine = all if strict else any
+        return lambda entry: combine(
+            substring in entry.title.casefold() or substring in entry.body.casefold()
+            for substring in contains_lower
+        )
 
     def delete_entries(self, entries_to_delete: list[Entry]) -> None:
         """Deletes specific entries from a journal."""
