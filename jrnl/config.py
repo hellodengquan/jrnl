@@ -83,11 +83,14 @@ def get_default_config() -> dict[str, Any]:
         "highlight": True,
         "linewrap": 79,
         "indent_character": "|",
+        "display_references": True,
         "colors": {
             "body": "none",
             "date": "none",
             "tags": "none",
             "title": "none",
+            "references": "none",
+            "backlinks": "none",
         },
     }
 
@@ -98,6 +101,8 @@ def get_default_colors() -> dict[str, Any]:
         "date": "black",
         "tags": "yellow",
         "title": "cyan",
+        "references": "blue",
+        "backlinks": "magenta",
     }
 
 

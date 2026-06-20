@@ -1,6 +1,8 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+from __future__ import annotations
+
 import codecs
 import os
 import pathlib
@@ -40,6 +42,7 @@ class Folder(Journal):
                     journal = f.read()
                     self.entries.extend(self._parse(journal))
             self.sort()
+            self.build_references_index()
 
         return self
 
@@ -92,6 +95,7 @@ class Folder(Journal):
             self.entries.remove(entry)
             self._diff_entry_dates.append(entry.date)
             self.deleted_entry_count += 1
+        self.build_references_index()
 
     def change_date_entries(self, date: str, entries_to_change: list["Entry"]) -> None:
         """Changes entry dates to given date."""
@@ -104,6 +108,7 @@ class Folder(Journal):
             self._diff_entry_dates.append(entry.date)
             entry.date = date
             entry.modified = True
+        self.build_references_index()
 
     def parse_editable_str(self, edited: str) -> None:
         """Parses the output of self.editable_str and updates its entries."""
@@ -119,6 +124,7 @@ class Folder(Journal):
 
         self.increment_change_counts_by_edit(mod_entries)
         self.entries = mod_entries
+        self.build_references_index()
 
     @staticmethod
     def _get_files(journal_path: str) -> list[str]:

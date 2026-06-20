@@ -81,3 +81,30 @@ def highlight_tags_with_background_color(
         return final_text.lstrip()
     else:
         return text
+
+
+def highlight_references(
+    entry: "Entry", text: str, color: str, is_title: bool = False
+) -> str:
+    """
+    Takes a string and highlights references [[...]] in it.
+    :param entry: Entry object, for access to journal config
+    :param text: Text to be colorized
+    :param color: Color for non-reference text
+    :param is_title: Boolean flag indicating if the text is a title or not
+    :return: Colorized str
+    """
+    from jrnl.journals.Entry import Entry
+
+    config = entry.journal.config
+    ref_color = config["colors"].get("references", "blue")
+
+    if not config.get("highlight", True):
+        return text
+
+    def colorize_match(match):
+        ref_text = match.group(0)
+        return colorize(ref_text, ref_color, bold=True)
+
+    result = re.sub(Entry.reference_regex(), colorize_match, text)
+    return result

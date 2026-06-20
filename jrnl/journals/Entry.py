@@ -1,6 +1,8 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+from __future__ import annotations
+
 import datetime
 import logging
 import os
@@ -8,6 +10,7 @@ import re
 from typing import TYPE_CHECKING
 
 from jrnl.color import colorize
+from jrnl.color import highlight_references
 from jrnl.color import highlight_tags_with_background_color
 from jrnl.output import wrap_with_ansi_colors
 
@@ -29,6 +32,8 @@ class Entry:
         self._title = None
         self._body = None
         self._tags = None
+        self._references = None
+        self._backlinks = None
         self.starred = starred
         self.modified = False
 
@@ -45,6 +50,18 @@ class Entry:
         self._title, self._body = split_title(raw_text)
         if self._tags is None:
             self._tags = list(self._parse_tags())
+        if self._references is None:
+            self._references = list(self._parse_references())
+
+    @staticmethod
+    def reference_regex() -> re.Pattern:
+        pattern = r"\[\[([^\]]+)\]\]"
+        return re.compile(pattern)
+
+    def _parse_references(self) -> set[str]:
+        return {
+            ref.strip() for ref in re.findall(Entry.reference_regex(), self.text)
+        }
 
     @property
     def title(self) -> str:
@@ -75,6 +92,26 @@ class Entry:
     @tags.setter
     def tags(self, x: list[str]):
         self._tags = x
+
+    @property
+    def references(self) -> list[str]:
+        if self._references is None:
+            self._parse_text()
+        return self._references
+
+    @references.setter
+    def references(self, x: list[str]):
+        self._references = x
+
+    @property
+    def backlinks(self) -> list["Entry"]:
+        if self._backlinks is None:
+            self._backlinks = []
+        return self._backlinks
+
+    @backlinks.setter
+    def backlinks(self, x: list["Entry"]):
+        self._backlinks = x
 
     @staticmethod
     def tag_regex(tagsymbols: str) -> re.Pattern:
@@ -114,6 +151,15 @@ class Entry:
             bold=True,
         )
 
+        # Get references display
+        references_info = ""
+        backlinks_info = ""
+        display_references = self.journal.config.get("display_references", True)
+
+        if not short and display_references:
+            references_info = self._format_references()
+            backlinks_info = self._format_backlinks()
+
         if not short and self.journal.config["linewrap"]:
             columns = self.journal.config["linewrap"]
 
@@ -128,19 +174,22 @@ class Entry:
                     columns = 79
 
             # Color date / title and bold title
-            title = wrap_with_ansi_colors(
-                date_str
-                + " "
-                + highlight_tags_with_background_color(
-                    self,
-                    self.title,
-                    self.journal.config["colors"]["title"],
-                    is_title=True,
-                ),
-                columns,
+            title_text = highlight_tags_with_background_color(
+                self,
+                self.title,
+                self.journal.config["colors"]["title"],
+                is_title=True,
             )
+            title_text = highlight_references(
+                self, title_text, self.journal.config["colors"]["title"], is_title=True
+            )
+            title = wrap_with_ansi_colors(date_str + " " + title_text, columns)
+
             body = highlight_tags_with_background_color(
                 self, self.body.rstrip(" \n"), self.journal.config["colors"]["body"]
+            )
+            body = highlight_references(
+                self, body, self.journal.config["colors"]["body"]
             )
 
             body = wrap_with_ansi_colors(body, columns - len(indent))
@@ -153,19 +202,28 @@ class Entry:
                 )
 
             body = colorize(body, self.journal.config["colors"]["body"])
+
+            if references_info:
+                references_info = wrap_with_ansi_colors(references_info, columns)
+            if backlinks_info:
+                backlinks_info = wrap_with_ansi_colors(backlinks_info, columns)
         else:
-            title = (
-                date_str
-                + " "
-                + highlight_tags_with_background_color(
-                    self,
-                    self.title.rstrip("\n"),
-                    self.journal.config["colors"]["title"],
-                    is_title=True,
-                )
+            title_text = highlight_tags_with_background_color(
+                self,
+                self.title.rstrip("\n"),
+                self.journal.config["colors"]["title"],
+                is_title=True,
             )
+            title_text = highlight_references(
+                self, title_text, self.journal.config["colors"]["title"], is_title=True
+            )
+            title = date_str + " " + title_text
+
             body = highlight_tags_with_background_color(
                 self, self.body.rstrip("\n "), self.journal.config["colors"]["body"]
+            )
+            body = highlight_references(
+                self, body, self.journal.config["colors"]["body"]
             )
 
         # Suppress bodies that are just blanks and new lines.
@@ -176,9 +234,62 @@ class Entry:
         if short:
             return title
         else:
-            return "{title}{sep}{body}\n".format(
+            result = "{title}{sep}{body}".format(
                 title=title, sep="\n" if has_body else "", body=body if has_body else ""
             )
+            if references_info:
+                result += "\n" + references_info
+            if backlinks_info:
+                result += "\n" + backlinks_info
+            return result + "\n"
+
+    def _format_references(self) -> str:
+        """Formats outgoing references for display."""
+        if not self.references:
+            return ""
+
+        ref_color = self.journal.config["colors"].get("references", "blue")
+        resolved_refs = []
+        for ref_text in self.references:
+            target = self.journal.find_entry_by_reference(ref_text, self)
+            if target:
+                target_date = target.date.strftime(self.journal.config["timeformat"])
+                target_title = target.title.strip()
+                label = colorize(f"→ {target_date} {target_title}", ref_color)
+            else:
+                label = colorize(f"→ [[{ref_text}]]", "red")
+            resolved_refs.append(label)
+
+        if not resolved_refs:
+            return ""
+
+        indent_char = self.journal.config["indent_character"]
+        indent = indent_char.rstrip() + " " if indent_char else ""
+        header = colorize("References:", ref_color, bold=True)
+        lines = [header] + [indent + ref for ref in resolved_refs]
+        return "\n".join(lines)
+
+    def _format_backlinks(self) -> str:
+        """Formats incoming backlinks for display."""
+        if not self.backlinks:
+            return ""
+
+        backlink_color = self.journal.config["colors"].get("backlinks", "magenta")
+        resolved_backlinks = []
+        for source in self.backlinks:
+            source_date = source.date.strftime(self.journal.config["timeformat"])
+            source_title = source.title.strip()
+            label = colorize(f"← {source_date} {source_title}", backlink_color)
+            resolved_backlinks.append(label)
+
+        if not resolved_backlinks:
+            return ""
+
+        indent_char = self.journal.config["indent_character"]
+        indent = indent_char.rstrip() + " " if indent_char else ""
+        header = colorize("Backlinks:", backlink_color, bold=True)
+        lines = [header] + [indent + bl for bl in resolved_backlinks]
+        return "\n".join(lines)
 
     def __repr__(self):
         return "<Entry '{}' on {}>".format(

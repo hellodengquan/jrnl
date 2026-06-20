@@ -1,6 +1,8 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+from __future__ import annotations
+
 import contextlib
 import datetime
 import fnmatch
@@ -98,6 +100,7 @@ class DayOne(Journal):
 
                     self.entries.append(entry)
         self.sort()
+        self.build_references_index()
         return self
 
     def write(self) -> None:
@@ -167,7 +170,25 @@ class DayOne(Journal):
     def editable_str(self) -> str:
         """Turns the journal into a string of entries that can be edited
         manually and later be parsed with eslf.parse_editable_str."""
-        return "\n".join([f"{str(e)}\n# {e.uuid}\n" for e in self.entries])
+        lines = []
+        display_references = self.config.get("display_references", True)
+        for e in self.entries:
+            lines.append(str(e).rstrip())
+            lines.append(f"# {e.uuid}")
+
+            if display_references:
+                ref_meta = self._format_references_meta(e)
+                backlink_meta = self._format_backlinks_meta(e)
+                if ref_meta:
+                    lines.append(ref_meta)
+                if backlink_meta:
+                    lines.append(backlink_meta)
+                if ref_meta or backlink_meta:
+                    lines.append("")
+            else:
+                lines.append("")
+
+        return "\n".join(lines) + "\n"
 
     def _update_old_entry(self, entry: Entry, new_entry: Entry) -> None:
         for attr in ("title", "body", "date", "tags"):
@@ -217,3 +238,4 @@ class DayOne(Journal):
                             entry._tags.extend(tags_not_in_body.sort())
                     self._update_old_entry(old_entry, entry)
                     break
+        self.build_references_index()

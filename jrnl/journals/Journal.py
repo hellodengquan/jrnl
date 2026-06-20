@@ -1,6 +1,8 @@
 # Copyright © 2012-2023 jrnl contributors
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
+from __future__ import annotations
+
 import datetime
 import logging
 import os
@@ -43,6 +45,7 @@ class Journal:
             "highlight": True,
             "linewrap": 80,
             "indent_character": "|",
+            "display_references": True,
         }
         self.config.update(kwargs)
         # Set up date parser
@@ -84,6 +87,7 @@ class Journal:
 
         self.entries = list(frozenset(self.entries) | frozenset(imported_entries))
         self.sort()
+        self.build_references_index()
 
     def _get_encryption_method(self) -> None:
         encryption_method = determine_encryption_method(self.config["encrypt"])
@@ -133,6 +137,7 @@ class Journal:
         text = self._decrypt(text)
         self.entries = self._parse(text)
         self.sort()
+        self.build_references_index()
         logging.debug("opened %s with %d entries", self.__class__.__name__, len(self))
         return self
 
@@ -164,8 +169,20 @@ class Journal:
         with open(filename, "wb") as f:
             f.write(text)
 
+    @staticmethod
+    def _strip_metadata_lines(text: str) -> str:
+        """Removes metadata lines (prefixed with %%) from journal text."""
+        lines = text.split("\n")
+        filtered_lines = [
+            line for line in lines if not line.lstrip().startswith("%%")
+        ]
+        return "\n".join(filtered_lines)
+
     def _parse(self, journal_txt: str) -> list[Entry]:
         """Parses a journal that's stored in a string and returns a list of entries"""
+
+        # Strip metadata lines before parsing
+        journal_txt = self._strip_metadata_lines(journal_txt)
 
         # Return empty array if the journal is blank
         if not journal_txt:
@@ -232,6 +249,87 @@ class Journal:
         # To be read: [for entry in journal.entries: for tag in set(entry.tags): tag]
         tag_counts = {(tags.count(tag), tag) for tag in tags}
         return [Tag(tag, count=count) for count, tag in sorted(tag_counts)]
+
+    def build_references_index(self) -> None:
+        """Builds the reverse link index for all entries in the journal."""
+        # First, reset all backlinks
+        for entry in self.entries:
+            entry.backlinks = []
+
+        # Then, for each entry, find what it references and add backlinks
+        for source_entry in self.entries:
+            for ref_text in source_entry.references:
+                target_entry = self.find_entry_by_reference(ref_text, source_entry)
+                if target_entry and target_entry is not source_entry:
+                    if source_entry not in target_entry.backlinks:
+                        target_entry.backlinks.append(source_entry)
+
+    def find_entry_by_reference(
+        self, ref_text: str, context_entry: "Entry" | None = None
+    ) -> "Entry" | None:
+        """Finds an entry based on a reference text.
+        Supports:
+        - Date/time strings matching the configured timeformat
+        - Date strings (without time)
+        - Relative date references (yesterday, today, etc.)
+        - Partial title matches
+        """
+        if not self.entries:
+            return None
+
+        from jrnl import time as jrnl_time
+
+        # Try to parse ref_text as a date/time
+        parsed_date = None
+        try:
+            parsed_date = datetime.datetime.strptime(
+                ref_text, self.config["timeformat"]
+            )
+        except ValueError:
+            pass
+
+        if parsed_date is None:
+            try:
+                parsed_date = jrnl_time.parse(ref_text)
+            except Exception as e:
+                logging.debug(
+                    "Could not parse reference '%s' as date: %s", ref_text, e
+                )
+
+        # If we got a date, look for an exact or close match
+        if parsed_date:
+            # Try exact match first
+            for entry in self.entries:
+                if entry.date == parsed_date:
+                    return entry
+            # Try same day match
+            for entry in self.entries:
+                if (
+                    entry.date.year == parsed_date.year
+                    and entry.date.month == parsed_date.month
+                    and entry.date.day == parsed_date.day
+                ):
+                    return entry
+
+        # Try to match by title (case-insensitive)
+        ref_lower = ref_text.lower().strip()
+        for entry in self.entries:
+            if ref_lower in entry.title.lower():
+                return entry
+
+        # Try matching by position relative to context_entry
+        if context_entry is not None:
+            try:
+                idx = self.entries.index(context_entry)
+                if ref_text.isdigit():
+                    offset = int(ref_text)
+                    target_idx = idx + offset
+                    if 0 <= target_idx < len(self.entries):
+                        return self.entries[target_idx]
+            except (ValueError, IndexError):
+                pass
+
+        return None
 
     def filter(
         self,
@@ -323,6 +421,7 @@ class Journal:
         for entry in entries_to_delete:
             self.entries.remove(entry)
             self.deleted_entry_count += 1
+        self.build_references_index()
 
     def change_date_entries(
         self, date: datetime.datetime, entries_to_change: list[Entry]
@@ -333,6 +432,7 @@ class Journal:
         for entry in entries_to_change:
             entry.date = date
             entry.modified = True
+        self.build_references_index()
 
     def prompt_action_entries(self, msg: MsgText) -> list[Entry]:
         """Prompts for action for each entry in a journal, using given message.
@@ -390,12 +490,58 @@ class Journal:
         self.entries.append(entry)
         if sort:
             self.sort()
+        self.build_references_index()
         return entry
 
     def editable_str(self) -> str:
         """Turns the journal into a string of entries that can be edited
         manually and later be parsed with self.parse_editable_str."""
-        return "\n".join([str(e) for e in self.entries])
+        lines = []
+        display_references = self.config.get("display_references", True)
+
+        for e in self.entries:
+            lines.append(str(e).rstrip())
+
+            if display_references:
+                # Add reference metadata as comments (prefixed with %%)
+                ref_meta = self._format_references_meta(e)
+                backlink_meta = self._format_backlinks_meta(e)
+                if ref_meta:
+                    lines.append(ref_meta)
+                if backlink_meta:
+                    lines.append(backlink_meta)
+                if ref_meta or backlink_meta:
+                    lines.append("")
+
+        return "\n".join(lines) + "\n"
+
+    def _format_references_meta(self, entry: "Entry") -> str:
+        """Formats outgoing references as editor metadata comments."""
+        if not entry.references:
+            return ""
+
+        lines = ["%% References:"]
+        for ref_text in entry.references:
+            target = self.find_entry_by_reference(ref_text, entry)
+            if target:
+                target_date = target.date.strftime(self.config["timeformat"])
+                target_title = target.title.strip()
+                lines.append(f"%%   → [[{ref_text}]] => {target_date} {target_title}")
+            else:
+                lines.append(f"%%   → [[{ref_text}]] => [NOT FOUND]")
+        return "\n".join(lines)
+
+    def _format_backlinks_meta(self, entry: "Entry") -> str:
+        """Formats incoming backlinks as editor metadata comments."""
+        if not entry.backlinks:
+            return ""
+
+        lines = ["%% Backlinks (these entries reference this one):"]
+        for source in entry.backlinks:
+            source_date = source.date.strftime(self.config["timeformat"])
+            source_title = source.title.strip()
+            lines.append(f"%%   ← {source_date} {source_title}")
+        return "\n".join(lines)
 
     def parse_editable_str(self, edited: str) -> None:
         """Parses the output of self.editable_str and updates it's entries."""
@@ -409,6 +555,7 @@ class Journal:
         self.increment_change_counts_by_edit(mod_entries)
 
         self.entries = mod_entries
+        self.build_references_index()
 
     def increment_change_counts_by_edit(self, mod_entries: Entry) -> None:
         if len(mod_entries) > len(self.entries):
@@ -431,6 +578,8 @@ class LegacyJournal(Journal):
 
     def _parse(self, journal_txt: str) -> list[Entry]:
         """Parses a journal that's stored in a string and returns a list of entries"""
+        # Strip metadata lines before parsing
+        journal_txt = self._strip_metadata_lines(journal_txt)
         # Entries start with a line that looks like 'date title' - let's figure out how
         # long the date will be by constructing one
         date_length = len(datetime.datetime.today().strftime(self.config["timeformat"]))
