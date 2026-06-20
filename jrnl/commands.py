@@ -190,14 +190,13 @@ def postconfig_check_config(
 
     print_msg(Message(MsgText.ConfigCheckTitle, MsgStyle.TITLE))
 
-    integrity = check_config_integrity(original_config)
-    has_missing = integrity["top_level"] or integrity["nested"]
+    missing = check_config_integrity(original_config)
 
-    if not has_missing:
+    if not missing:
         print_msg(
             Message(MsgText.ConfigCheckAllFieldsPresent, MsgStyle.NORMAL)
         )
         return 0
 
-    _print_missing_fields_warning(integrity)
+    _print_missing_fields_warning(missing)
     return 1

@@ -215,35 +215,92 @@ def cmd_requires_valid_journal_name(func: Callable) -> Callable:
     return wrapper
 
 
-def check_config_integrity(config: dict) -> dict[str, list[tuple[str, Any]]]:
+DYNAMIC_DICT_KEYS = {"journals"}
+
+
+def _recursive_check_integrity(
+    default_node: Any,
+    config_node: Any,
+    path: tuple[str, ...],
+    result: list[dict],
+    skip_keys: set[str],
+) -> None:
+    if not isinstance(default_node, dict):
+        return
+
+    if path and path[-1] in skip_keys:
+        return
+
+    if config_node is None or not isinstance(config_node, dict):
+        for key in sorted(default_node.keys()):
+            result.append(
+                {
+                    "path": path + (key,),
+                    "default_value": default_node[key],
+                }
+            )
+        return
+
+    for key, default_value in sorted(default_node.items()):
+        current_path = path + (key,)
+        if key not in config_node:
+            result.append(
+                {
+                    "path": current_path,
+                    "default_value": default_value,
+                }
+            )
+        else:
+            _recursive_check_integrity(
+                default_value,
+                config_node[key],
+                current_path,
+                result,
+                skip_keys,
+            )
+
+
+def check_config_integrity(
+    config: dict, skip_keys: set[str] | None = None
+) -> list[dict]:
     """
-    Check the configuration for missing fields by comparing with the
-    default config. Returns a dict with two keys:
-      - 'top_level': list of (key, default_value) tuples for missing
-        top-level keys
-      - 'nested': list of (parent_key, missing_key, default_value)
-        tuples for missing nested keys
+    Recursively check the configuration for missing fields by comparing
+    with the default config. Supports arbitrarily deep nested structures.
+
+    :param config: The user configuration dictionary to check.
+    :param skip_keys: Set of top-level keys whose sub-keys are dynamic
+        and should not be recursively validated (e.g. "journals").
+    :return: A list of dicts, each with:
+        - 'path': tuple of keys representing the full path to the
+          missing field (e.g. ('colors', 'title'))
+        - 'default_value': the value that will be applied as default
     """
+    if skip_keys is None:
+        skip_keys = DYNAMIC_DICT_KEYS
+
     default_config = get_default_config()
-    result: dict[str, list] = {"top_level": [], "nested": []}
+    result: list[dict] = []
 
-    missing_top_keys = set(default_config).difference(config)
-    for key in sorted(missing_top_keys):
-        result["top_level"].append((key, default_config[key]))
-
-    for key, default_value in default_config.items():
-        if (
-            isinstance(default_value, dict)
-            and key in config
-            and isinstance(config.get(key), dict)
-        ):
-            missing_nested = set(default_value).difference(config[key])
-            for nested_key in sorted(missing_nested):
-                result["nested"].append(
-                    (key, nested_key, default_value[nested_key])
-                )
+    _recursive_check_integrity(default_config, config, (), result, skip_keys)
 
     return result
+
+
+def format_missing_path(path: tuple[str, ...]) -> str:
+    return ".".join(path)
+
+
+def apply_missing_defaults(config: dict, missing: list[dict]) -> None:
+    """Apply default values for missing fields into the given config dict."""
+    for item in missing:
+        path = item["path"]
+        default_value = item["default_value"]
+        node = config
+        for key in path[:-1]:
+            if key not in node or not isinstance(node[key], dict):
+                node[key] = {}
+            node = node[key]
+        node[path[-1]] = default_value
 
 
 def validate_journal_name(journal_name: str, config: dict) -> None:

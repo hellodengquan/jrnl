@@ -11,7 +11,9 @@ from rich.pretty import pretty_repr
 
 from jrnl import __version__
 from jrnl.config import DEFAULT_JOURNAL_KEY
+from jrnl.config import apply_missing_defaults
 from jrnl.config import check_config_integrity
+from jrnl.config import format_missing_path
 from jrnl.config import get_config_path
 from jrnl.config import get_default_colors
 from jrnl.config import get_default_config
@@ -38,17 +40,12 @@ def upgrade_config(config_data: dict, alt_config_path: str | None = None) -> Non
     existence of and difference in version number between config dict
     and current jrnl version, and if so, update the config file accordingly.
     Supply alt_config_path if using an alternate config through --config-file."""
-    default_config = get_default_config()
-    missing_keys = set(default_config).difference(config_data)
-
+    missing = check_config_integrity(config_data)
     different_version = config_data.get("version") != __version__
 
-    if missing_keys or different_version:
-        integrity = check_config_integrity(config_data)
-        has_missing = integrity["top_level"] or integrity["nested"]
-
-        if has_missing:
-            _print_missing_fields_warning(integrity)
+    if missing or different_version:
+        if missing:
+            _print_missing_fields_warning(missing)
             cont = yesno(
                 Message(MsgText.ConfigCheckProceedUpgrade), default=True
             )
@@ -61,11 +58,7 @@ def upgrade_config(config_data: dict, alt_config_path: str | None = None) -> Non
                     save_config(config_data, alt_config_path)
                 return
 
-        for key in missing_keys:
-            config_data[key] = default_config[key]
-
-        for parent_key, nested_key, default_value in integrity["nested"]:
-            config_data[parent_key][nested_key] = default_value
+            apply_missing_defaults(config_data, missing)
 
         if different_version:
             config_data["version"] = __version__
@@ -79,16 +72,25 @@ def upgrade_config(config_data: dict, alt_config_path: str | None = None) -> Non
         )
 
 
-def _print_missing_fields_warning(integrity: dict) -> None:
-    top_level_items = integrity["top_level"]
-    nested_items = integrity["nested"]
+def _print_missing_fields_warning(missing: list[dict]) -> None:
+    grouped: dict[str, list[dict]] = {}
+    top_level: list[dict] = []
 
-    if top_level_items:
+    for item in missing:
+        path = item["path"]
+        if len(path) == 1:
+            top_level.append(item)
+        else:
+            parent_key = path[0]
+            grouped.setdefault(parent_key, []).append(item)
+
+    if top_level:
         missing_str = "\n".join(
-            f"  - {key}" for key, _ in top_level_items
+            f"  - {format_missing_path(item['path'])}" for item in top_level
         )
         default_str = "\n".join(
-            f"  - {key}: {value!r}" for key, value in top_level_items
+            f"  - {format_missing_path(item['path'])}: {item['default_value']!r}"
+            for item in top_level
         )
         print_msg(
             Message(
@@ -101,29 +103,25 @@ def _print_missing_fields_warning(integrity: dict) -> None:
             )
         )
 
-    if nested_items:
-        grouped: dict[str, list] = {}
-        for parent_key, nested_key, default_value in nested_items:
-            grouped.setdefault(parent_key, []).append((nested_key, default_value))
-
-        for parent_key, items in grouped.items():
-            missing_str = "\n".join(
-                f"  - {key}" for key, _ in items
+    for parent_key, items in grouped.items():
+        missing_str = "\n".join(
+            f"  - {format_missing_path(item['path'])}" for item in items
+        )
+        default_str = "\n".join(
+            f"  - {format_missing_path(item['path'])}: {item['default_value']!r}"
+            for item in items
+        )
+        print_msg(
+            Message(
+                MsgText.ConfigCheckNestingMissingFields,
+                MsgStyle.WARNING,
+                {
+                    "parent_key": parent_key,
+                    "missing_fields": missing_str,
+                    "default_values": default_str,
+                },
             )
-            default_str = "\n".join(
-                f"  - {key}: {value!r}" for key, value in items
-            )
-            print_msg(
-                Message(
-                    MsgText.ConfigCheckNestingMissingFields,
-                    MsgStyle.WARNING,
-                    {
-                        "parent_key": parent_key,
-                        "missing_fields": missing_str,
-                        "default_values": default_str,
-                    },
-                )
-            )
+        )
 
 
 def find_default_config() -> str:
