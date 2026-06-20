@@ -8,6 +8,16 @@ DEFAULT_FUTURE = datetime.datetime(FAKE_YEAR, 12, 31, 23, 59, 59)
 DEFAULT_PAST = datetime.datetime(FAKE_YEAR, 1, 1, 0, 0)
 
 
+def _convert_aware_to_local_naive(dt: datetime.datetime) -> datetime.datetime:
+    """Convert a timezone-aware datetime to a naive datetime in local timezone.
+    If the datetime is already naive, return it unchanged.
+    """
+    if dt.tzinfo is None:
+        return dt
+    local_tz = datetime.datetime.now().astimezone().tzinfo
+    return dt.astimezone(local_tz).replace(tzinfo=None)
+
+
 def __get_pdt_calendar():
     import parsedatetime as pdt
 
@@ -48,6 +58,7 @@ def parse(
             from dateutil.parser import parse as dateparse
 
             date = dateparse(date_str, default=default_date)
+            date = _convert_aware_to_local_naive(date)
             if date.year == FAKE_YEAR:
                 date = datetime.datetime(
                     datetime.datetime.now().year, date.timetuple()[1:6]

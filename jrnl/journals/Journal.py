@@ -182,6 +182,9 @@ class Journal:
                 new_date = datetime.datetime.strptime(
                     date_blob, self.config["timeformat"]
                 )
+                if new_date.tzinfo is not None:
+                    local_tz = datetime.datetime.now().astimezone().tzinfo
+                    new_date = new_date.astimezone(local_tz).replace(tzinfo=None)
             except ValueError:
                 # Passing in a date that had brackets around it
                 new_date = time.parse(date_blob, bracketed=True)
@@ -446,6 +449,9 @@ class LegacyJournal(Journal):
                 new_date = datetime.datetime.strptime(
                     line[:date_length], self.config["timeformat"]
                 )
+                if new_date.tzinfo is not None:
+                    local_tz = datetime.datetime.now().astimezone().tzinfo
+                    new_date = new_date.astimezone(local_tz).replace(tzinfo=None)
 
                 # parsing successful => save old entry and create new one
                 if new_date and current_entry:

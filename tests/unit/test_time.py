@@ -2,10 +2,16 @@
 # License: https://www.gnu.org/licenses/gpl-3.0.html
 
 import datetime
+import os
+import time as time_module
 
 import pytest
 
 from jrnl import time
+
+
+def _local_offset_hours():
+    return -time_module.timezone / 3600
 
 
 def test_default_hour_is_added():
@@ -42,3 +48,38 @@ def test_default_minute_is_added():
 def test_is_valid_date(inputs):
     year, month, day, expected_result = inputs
     assert time.is_valid_date(year, month, day) == expected_result
+
+
+@pytest.mark.parametrize(
+    "date_str,expected_local_hour",
+    [
+        ("2024-06-20T14:30:00Z", 14 + _local_offset_hours()),
+        ("2024-06-20T14:30:00+00:00", 14 + _local_offset_hours()),
+        ("2024-06-20 14:30 UTC", 14 + _local_offset_hours()),
+        ("2024-06-20 14:30 GMT", 14 + _local_offset_hours()),
+        ("2024-06-20T06:30:00Z", 6 + _local_offset_hours()),
+        ("2024-06-20 14:30 +0000", 14 + _local_offset_hours()),
+    ],
+)
+def test_timezone_aware_strings_converted_to_local(date_str, expected_local_hour):
+    result = time.parse(date_str)
+    assert result is not None
+    assert result.hour == int(expected_local_hour)
+    assert result.tzinfo is None
+
+
+def test_timezone_aware_plus8_string_parsed_correctly():
+    result = time.parse("2024-06-20T14:30:00+08:00")
+    assert result is not None
+    assert result.tzinfo is None
+    local_offset = _local_offset_hours()
+    expected_hour = 14 + (local_offset - 8)
+    assert result.hour == int(expected_hour)
+
+
+def test_naive_datetime_string_no_change():
+    result = time.parse("2024-06-20 14:30:00")
+    assert result is not None
+    assert result.hour == 14
+    assert result.minute == 30
+    assert result.tzinfo is None
