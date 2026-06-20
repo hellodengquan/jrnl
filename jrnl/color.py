@@ -18,12 +18,30 @@ if on_windows():
     colorama.init()
 
 
-def _should_use_color() -> bool:
-    """Check if NO_COLOR environment variable is set.
+# CLI flag for --no-color command-line argument
+_no_color_cli_flag = False
 
-    Following https://no-color.org/ convention: if the NO_COLOR environment
-    variable exists and is not an empty string, color output should be disabled.
+
+def set_no_color(value: bool = True) -> None:
+    """Set the CLI no-color flag.
+
+    When set to True, disables all color output, equivalent to NO_COLOR env var.
     """
+    global _no_color_cli_flag
+    _no_color_cli_flag = value
+
+
+def _should_use_color() -> bool:
+    """Check if color output should be used.
+
+    Disabled when either:
+    - NO_COLOR environment variable is set and non-empty (per https://no-color.org/)
+    - --no-color CLI flag was provided
+
+    Returns True if colors should be used, False otherwise.
+    """
+    if _no_color_cli_flag:
+        return False
     no_color = os.environ.get("NO_COLOR")
     return no_color is None or no_color == ""
 

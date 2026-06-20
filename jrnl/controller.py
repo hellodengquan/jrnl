@@ -105,16 +105,24 @@ def run(args: "Namespace"):
 def _determine_status_code(args: "Namespace", journal: "Journal") -> int:
     """Determine exit status code based on operation result.
 
-    Returns:
-        0 - Success: entries found or normal operation
-        1 - Target entry not found (for --backlinks)
-        2 - Target entry found but no backlinks reference it (for --backlinks)
+    For --backlinks operations:
+        0 - Success: backlinks found
+        1 - Invalid input (empty or whitespace-only identifier)
+        2 - Target entry not found
+        3 - Target entry found but no backlinks reference it
+    For all other operations:
+        0 - Success
     """
     if args.backlinks:
+        # Use the status set by _backlinks_search_results if available
+        status = getattr(args, "_backlinks_status", None)
+        if status is not None:
+            return status
+        # Fallback to heuristic for backward compatibility
         if not getattr(args, "_backlinks_target_found", False):
-            return 1
+            return 2  # not found
         if len(journal.entries) == 0:
-            return 2
+            return 3  # no backlinks
     return 0
 
 
@@ -284,7 +292,17 @@ def _print_entries_found_count(count: int, args: "Namespace") -> None:
             # Handle backlinks-specific messages
             default_id = " ".join(args.backlinks)
             identifier = getattr(args, "_backlinks_identifier", default_id)
-            if not getattr(args, "_backlinks_target_found", False):
+            backlinks_status = getattr(args, "_backlinks_status", None)
+            # status 1 = invalid input
+            if backlinks_status == 1:
+                print_msg(
+                    Message(
+                        MsgText.InvalidBacklinksIdentifier,
+                        MsgStyle.ERROR,
+                        {"identifier": identifier},
+                    )
+                )
+            elif not getattr(args, "_backlinks_target_found", False):
                 print_msg(
                     Message(
                         MsgText.NoEntryFoundForBacklinks,
@@ -451,6 +469,11 @@ def _backlinks_search_results(
     """Filter entries to show those referencing the target entry.
 
     The target entry is identified by the identifier provided via --backlinks.
+    Sets args._backlinks_status with values:
+      0 = success (backlinks found)
+      1 = invalid input
+      2 = target entry not found
+      3 = target found but no backlinks
     """
     # Join the identifier parts (nargs="+") into a single string
     ref_identifier = " ".join(args.backlinks)
@@ -458,6 +481,14 @@ def _backlinks_search_results(
     args._backlinks_identifier = ref_identifier
 
     logging.debug(f"Searching backlinks for identifier: '{ref_identifier}'")
+
+    # Validate input: reject empty or whitespace-only identifiers
+    if not ref_identifier or not ref_identifier.strip():
+        logging.debug("Invalid backlinks identifier: empty or whitespace-only")
+        journal.entries = []
+        args._backlinks_target_found = False
+        args._backlinks_status = 1  # invalid input
+        return
 
     # Find the target entry from the full journal (old_entries), not filtered ones
     # Create a temporary journal with all entries for lookup
@@ -471,6 +502,7 @@ def _backlinks_search_results(
         logging.debug(f"No entry found for identifier: '{ref_identifier}'")
         journal.entries = []
         args._backlinks_target_found = False
+        args._backlinks_status = 2  # not found
         return
 
     args._backlinks_target_found = True
@@ -513,6 +545,9 @@ def _backlinks_search_results(
                     break
 
     journal.entries = backlink_entries
+
+    # Set status: 0 = success, 3 = target found but no backlinks
+    args._backlinks_status = 0 if backlink_entries else 3
 
     logging.debug(f"Found {len(backlink_entries)} backlink entries")
 

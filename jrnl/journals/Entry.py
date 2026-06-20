@@ -259,7 +259,7 @@ class Entry:
             if target:
                 target_date = target.date.strftime(self.journal.config["timeformat"])
                 target_title = target.title.strip()
-                text = f"→ {target_date} {target_title}"
+                text = f"→ [{target_date}] {target_title}"
                 label = text if plain else colorize(text, ref_color)
             else:
                 text = f"→ [[{ref_text}]]"
@@ -290,7 +290,7 @@ class Entry:
         for source in self.backlinks:
             source_date = source.date.strftime(self.journal.config["timeformat"])
             source_title = source.title.strip()
-            text = f"← {source_date} {source_title}"
+            text = f"← [{source_date}] {source_title}"
             label = text if plain else colorize(text, backlink_color)
             resolved_backlinks.append(label)
 

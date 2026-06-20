@@ -844,6 +844,43 @@ class TestNoColorSupport:
         assert "@world" in result
         assert "#test" in result
 
+    def test_set_no_color_cli_flag(self, monkeypatch):
+        """Test that set_no_color() CLI flag works like NO_COLOR env var."""
+        from jrnl.color import _should_use_color
+        from jrnl.color import set_no_color
+
+        # Reset the flag first (in case other tests set it)
+        set_no_color(False)
+
+        # Without flag set, should use color
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        assert _should_use_color() is True
+
+        # Set flag to True, should disable color (even without env var)
+        set_no_color(True)
+        assert _should_use_color() is False
+
+        # Reset flag
+        set_no_color(False)
+        assert _should_use_color() is True
+
+    def test_no_color_cli_arg_is_recognized(self):
+        """Test that --no-color argument is parsed correctly."""
+        from jrnl.args import parse_args
+
+        # Without --no-color (empty args)
+        args = parse_args([])
+        assert hasattr(args, "no_color")
+        assert args.no_color is False
+
+        # With --no-color
+        args = parse_args(["--no-color"])
+        assert args.no_color is True
+
+        # --no-color combined with other flags
+        args = parse_args(["--no-color", "-n", "5"])
+        assert args.no_color is True
+
 
 class TestBacklinksExitCodes:
     """Test exit codes for backlinks CLI queries."""
@@ -873,10 +910,38 @@ class TestBacklinksExitCodes:
         assert len(journal.entries) > 0
         assert _determine_status_code(args, journal) == 0
 
+    def test_status_code_invalid_input(
+        self, basic_journal_config, test_entries_data
+    ):
+        """Test status code 1 when backlinks identifier is invalid."""
+        from jrnl.controller import _determine_status_code
+
+        journal = Journal("test", **basic_journal_config)
+
+        for entry_data in test_entries_data:
+            entry = journal.new_entry(
+                entry_data["text"], date=entry_data["date"], sort=False
+            )
+            entry._parse_text()
+
+        journal.sort()
+        journal.build_references_index()
+
+        old_entries = journal.entries.copy()
+        # Empty identifier - using a list with empty strings
+        args = make_backlinks_args("")
+        _backlinks_search_results(
+            args=args, journal=journal, old_entries=old_entries
+        )
+
+        # Invalid input - should return 1
+        assert getattr(args, "_backlinks_status", -1) == 1
+        assert _determine_status_code(args, journal) == 1
+
     def test_status_code_target_not_found(
         self, basic_journal_config, test_entries_data
     ):
-        """Test status code 1 when target entry is not found."""
+        """Test status code 2 when target entry is not found."""
         from jrnl.controller import _determine_status_code
 
         journal = Journal("test", **basic_journal_config)
@@ -896,12 +961,13 @@ class TestBacklinksExitCodes:
             args=args, journal=journal, old_entries=old_entries
         )
 
-        # Target not found - should return 1
+        # Target not found - should return 2
         assert getattr(args, "_backlinks_target_found", False) is False
-        assert _determine_status_code(args, journal) == 1
+        assert getattr(args, "_backlinks_status", -1) == 2
+        assert _determine_status_code(args, journal) == 2
 
     def test_status_code_no_backlinks(self, basic_journal_config, test_entries_data):
-        """Test status code 2 when target exists but has no backlinks."""
+        """Test status code 3 when target exists but has no backlinks."""
         from jrnl.controller import _determine_status_code
 
         journal = Journal("test", **basic_journal_config)
@@ -922,10 +988,11 @@ class TestBacklinksExitCodes:
             args=args, journal=journal, old_entries=old_entries
         )
 
-        # Target found but no backlinks - should return 2
+        # Target found but no backlinks - should return 3
         assert getattr(args, "_backlinks_target_found", False) is True
         assert len(journal.entries) == 0
-        assert _determine_status_code(args, journal) == 2
+        assert getattr(args, "_backlinks_status", -1) == 3
+        assert _determine_status_code(args, journal) == 3
 
     def test_status_code_normal_operation(self, basic_journal_config):
         """Test status code 0 for normal operations (non-backlinks)."""

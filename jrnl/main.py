@@ -9,6 +9,7 @@ from rich.logging import RichHandler
 
 from jrnl import controller
 from jrnl.args import parse_args
+from jrnl.color import set_no_color
 from jrnl.exception import JrnlException
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
@@ -40,6 +41,10 @@ def run(manual_args: list[str] | None = None) -> int:
         args = parse_args(manual_args)
         configure_logger(args.debug)
         logging.debug("Parsed args:\n%s", args)
+
+        # Apply --no-color flag
+        if args.no_color:
+            set_no_color(True)
 
         status_code = controller.run(args)
 

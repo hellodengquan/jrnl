@@ -567,7 +567,8 @@ class Journal:
             source_date = source.date.strftime(self.config["timeformat"])
             source_title = source.title.strip()
             # Numbered backlink entry with consistent arrow format matching pprint
-            lines.append(f"%% [{i}] ← {source_date} {source_title}")
+            # Date is wrapped in [] to align with entry title line style
+            lines.append(f"%% [{i}] ← [{source_date}] {source_title}")
             lines.append(f"%%     Reference: [[{source_date}]]")
             lines.append(f"%%     Quick ref: [[{source_date[:10]}]]")
 

@@ -33,6 +33,7 @@ def expected_args(**kwargs):
         "export": False,
         "filename": None,
         "limit": None,
+        "no_color": False,
         "on_date": None,
         "preconfig_cmd": None,
         "postconfig_cmd": None,

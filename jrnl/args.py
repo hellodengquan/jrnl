@@ -89,6 +89,12 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         action="store_true",
         help="Print information useful for troubleshooting",
     )
+    optional.add_argument(
+        "--no-color",
+        dest="no_color",
+        action="store_true",
+        help="Disable color output (same as NO_COLOR environment variable)",
+    )
 
     standalone = parser.add_argument_group(
         "Standalone Commands",
