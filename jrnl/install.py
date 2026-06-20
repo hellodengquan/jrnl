@@ -11,6 +11,7 @@ from rich.pretty import pretty_repr
 
 from jrnl import __version__
 from jrnl.config import DEFAULT_JOURNAL_KEY
+from jrnl.config import check_config_integrity
 from jrnl.config import get_config_path
 from jrnl.config import get_default_colors
 from jrnl.config import get_default_config
@@ -39,15 +40,36 @@ def upgrade_config(config_data: dict, alt_config_path: str | None = None) -> Non
     Supply alt_config_path if using an alternate config through --config-file."""
     default_config = get_default_config()
     missing_keys = set(default_config).difference(config_data)
-    if missing_keys:
+
+    different_version = config_data.get("version") != __version__
+
+    if missing_keys or different_version:
+        integrity = check_config_integrity(config_data)
+        has_missing = integrity["top_level"] or integrity["nested"]
+
+        if has_missing:
+            _print_missing_fields_warning(integrity)
+            cont = yesno(
+                Message(MsgText.ConfigCheckProceedUpgrade), default=True
+            )
+            if not cont:
+                print_msg(
+                    Message(MsgText.ConfigCheckAborted, MsgStyle.WARNING)
+                )
+                if different_version:
+                    config_data["version"] = __version__
+                    save_config(config_data, alt_config_path)
+                return
+
         for key in missing_keys:
             config_data[key] = default_config[key]
 
-    different_version = config_data["version"] != __version__
-    if different_version:
-        config_data["version"] = __version__
+        for parent_key, nested_key, default_value in integrity["nested"]:
+            config_data[parent_key][nested_key] = default_value
 
-    if missing_keys or different_version:
+        if different_version:
+            config_data["version"] = __version__
+
         save_config(config_data, alt_config_path)
         config_path = alt_config_path if alt_config_path else get_config_path()
         print_msg(
@@ -55,6 +77,53 @@ def upgrade_config(config_data: dict, alt_config_path: str | None = None) -> Non
                 MsgText.ConfigUpdated, MsgStyle.NORMAL, {"config_path": config_path}
             )
         )
+
+
+def _print_missing_fields_warning(integrity: dict) -> None:
+    top_level_items = integrity["top_level"]
+    nested_items = integrity["nested"]
+
+    if top_level_items:
+        missing_str = "\n".join(
+            f"  - {key}" for key, _ in top_level_items
+        )
+        default_str = "\n".join(
+            f"  - {key}: {value!r}" for key, value in top_level_items
+        )
+        print_msg(
+            Message(
+                MsgText.ConfigCheckMissingFields,
+                MsgStyle.WARNING,
+                {
+                    "missing_fields": missing_str,
+                    "default_values": default_str,
+                },
+            )
+        )
+
+    if nested_items:
+        grouped: dict[str, list] = {}
+        for parent_key, nested_key, default_value in nested_items:
+            grouped.setdefault(parent_key, []).append((nested_key, default_value))
+
+        for parent_key, items in grouped.items():
+            missing_str = "\n".join(
+                f"  - {key}" for key, _ in items
+            )
+            default_str = "\n".join(
+                f"  - {key}: {value!r}" for key, value in items
+            )
+            print_msg(
+                Message(
+                    MsgText.ConfigCheckNestingMissingFields,
+                    MsgStyle.WARNING,
+                    {
+                        "parent_key": parent_key,
+                        "missing_fields": missing_str,
+                        "default_values": default_str,
+                    },
+                )
+            )
 
 
 def find_default_config() -> str:

@@ -20,6 +20,7 @@ import logging
 import platform
 import sys
 
+from jrnl.config import check_config_integrity
 from jrnl.config import cmd_requires_valid_journal_name
 from jrnl.exception import JrnlException
 from jrnl.messages import Message
@@ -180,3 +181,23 @@ def postconfig_decrypt(
         save_config(original_config)
 
     return 0
+
+
+def postconfig_check_config(
+    args: argparse.Namespace, config: dict, original_config: dict, **_
+) -> int:
+    from jrnl.install import _print_missing_fields_warning
+
+    print_msg(Message(MsgText.ConfigCheckTitle, MsgStyle.TITLE))
+
+    integrity = check_config_integrity(original_config)
+    has_missing = integrity["top_level"] or integrity["nested"]
+
+    if not has_missing:
+        print_msg(
+            Message(MsgText.ConfigCheckAllFieldsPresent, MsgStyle.NORMAL)
+        )
+        return 0
+
+    _print_missing_fields_warning(integrity)
+    return 1

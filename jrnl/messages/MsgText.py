@@ -271,6 +271,36 @@ class MsgText(Enum):
         '{format}' is likely to be an export-only format.
         """
 
+    # --- Config Self-Check --- #
+    ConfigCheckTitle = "Configuration Self-Check"
+    ConfigCheckAllFieldsPresent = (
+        "All configuration fields are present."
+        " No missing fields found."
+    )
+    ConfigCheckMissingFields = """
+        The following configuration fields are missing:
+
+        {missing_fields}
+
+        Default values that will be applied:
+
+        {default_values}
+        """
+    ConfigCheckProceedUpgrade = "Proceed with upgrading the configuration?"
+    ConfigCheckAborted = (
+        "Configuration upgrade was cancelled."
+        " Missing fields were not applied."
+    )
+    ConfigCheckNestingMissingFields = """
+        The following nested fields under '{parent_key}' are missing:
+
+        {missing_fields}
+
+        Default values that will be applied:
+
+        {default_values}
+        """
+
     # --- Color --- #
     InvalidColor = "{key} set to invalid color: {color}"
 

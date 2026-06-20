@@ -215,6 +215,37 @@ def cmd_requires_valid_journal_name(func: Callable) -> Callable:
     return wrapper
 
 
+def check_config_integrity(config: dict) -> dict[str, list[tuple[str, Any]]]:
+    """
+    Check the configuration for missing fields by comparing with the
+    default config. Returns a dict with two keys:
+      - 'top_level': list of (key, default_value) tuples for missing
+        top-level keys
+      - 'nested': list of (parent_key, missing_key, default_value)
+        tuples for missing nested keys
+    """
+    default_config = get_default_config()
+    result: dict[str, list] = {"top_level": [], "nested": []}
+
+    missing_top_keys = set(default_config).difference(config)
+    for key in sorted(missing_top_keys):
+        result["top_level"].append((key, default_config[key]))
+
+    for key, default_value in default_config.items():
+        if (
+            isinstance(default_value, dict)
+            and key in config
+            and isinstance(config.get(key), dict)
+        ):
+            missing_nested = set(default_value).difference(config[key])
+            for nested_key in sorted(missing_nested):
+                result["nested"].append(
+                    (key, nested_key, default_value[nested_key])
+                )
+
+    return result
+
+
 def validate_journal_name(journal_name: str, config: dict) -> None:
     if journal_name not in config["journals"]:
         raise JrnlException(

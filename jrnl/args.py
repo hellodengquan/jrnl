@@ -5,6 +5,7 @@ import argparse
 import re
 import textwrap
 
+from jrnl.commands import postconfig_check_config
 from jrnl.commands import postconfig_decrypt
 from jrnl.commands import postconfig_encrypt
 from jrnl.commands import postconfig_import
@@ -161,6 +162,16 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         metavar="TYPE",
         const=postconfig_decrypt,
         dest="postconfig_cmd",
+    )
+    standalone.add_argument(
+        "--check-config",
+        action="store_const",
+        const=postconfig_check_config,
+        dest="postconfig_cmd",
+        help=(
+            "Check configuration file for missing fields"
+            " and display their default values"
+        ),
     )
     standalone.add_argument(
         "--import",
