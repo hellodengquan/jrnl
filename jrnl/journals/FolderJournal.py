@@ -59,21 +59,23 @@ class Folder(Journal):
         # For every date that had a modified entry, write to a file
         for d in modified_dates:
             write_entries = []
+            local_d = time.convert_aware_to_local_naive(d)
             filename = os.path.join(
                 self.config["journal"],
-                d.strftime("%Y"),
-                d.strftime("%m"),
-                d.strftime("%d") + ".txt",
+                local_d.strftime("%Y"),
+                local_d.strftime("%m"),
+                local_d.strftime("%d") + ".txt",
             )
             dirname = os.path.dirname(filename)
             # create directory if it doesn't exist
             if not os.path.exists(dirname):
                 os.makedirs(dirname)
             for e in self.entries:
+                local_e_date = time.convert_aware_to_local_naive(e.date)
                 if (
-                    e.date.year == d.year
-                    and e.date.month == d.month
-                    and e.date.day == d.day
+                    local_e_date.year == local_d.year
+                    and local_e_date.month == local_d.month
+                    and local_e_date.day == local_d.day
                 ):
                     write_entries.append(e)
             journal = "\n".join([e.__str__() for e in write_entries])

@@ -7,6 +7,7 @@ import os
 import re
 from typing import TYPE_CHECKING
 
+from jrnl import time as jrnl_time
 from jrnl.color import colorize
 from jrnl.color import highlight_tags_with_background_color
 from jrnl.output import wrap_with_ansi_colors
@@ -24,7 +25,8 @@ class Entry:
         starred: bool = False,
     ):
         self.journal = journal  # Reference to journal mainly to access its config
-        self.date = date or datetime.datetime.now()
+        raw_date = date or datetime.datetime.now()
+        self.date = jrnl_time.convert_aware_to_local_naive(raw_date)
         self.text = text
         self._title = None
         self._body = None
@@ -89,7 +91,8 @@ class Entry:
 
     def __str__(self):
         """Returns string representation of the entry to be written to journal file."""
-        date_str = self.date.strftime(self.journal.config["timeformat"])
+        local_naive_date = jrnl_time.convert_aware_to_local_naive(self.date)
+        date_str = local_naive_date.strftime(self.journal.config["timeformat"])
         title = "[{}] {}".format(date_str, self.title.rstrip("\n "))
         if self.starred:
             title += " *"
@@ -108,8 +111,9 @@ class Entry:
         else:
             indent = ""
 
+        local_naive_date = jrnl_time.convert_aware_to_local_naive(self.date)
         date_str = colorize(
-            self.date.strftime(self.journal.config["timeformat"]),
+            local_naive_date.strftime(self.journal.config["timeformat"]),
             self.journal.config["colors"]["date"],
             bold=True,
         )
@@ -181,8 +185,9 @@ class Entry:
             )
 
     def __repr__(self):
+        local_naive_date = jrnl_time.convert_aware_to_local_naive(self.date)
         return "<Entry '{}' on {}>".format(
-            self.title.strip(), self.date.strftime("%Y-%m-%d %H:%M")
+            self.title.strip(), local_naive_date.strftime("%Y-%m-%d %H:%M")
         )
 
     def __hash__(self):

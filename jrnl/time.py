@@ -11,11 +11,14 @@ DEFAULT_PAST = datetime.datetime(FAKE_YEAR, 1, 1, 0, 0)
 def convert_aware_to_local_naive(dt: datetime.datetime) -> datetime.datetime:
     """Convert a timezone-aware datetime to a naive datetime in local timezone.
     If the datetime is already naive, return it unchanged.
+
+    Uses astimezone() without args which automatically picks the correct local
+    timezone and DST offset for *the specific point in time represented by dt*,
+    avoiding bugs where the conversion happens across a DST boundary.
     """
     if dt.tzinfo is None:
         return dt
-    local_tz = datetime.datetime.now().astimezone().tzinfo
-    return dt.astimezone(local_tz).replace(tzinfo=None)
+    return dt.astimezone().replace(tzinfo=None)
 
 
 def __get_pdt_calendar():
