@@ -287,6 +287,118 @@ def _apply_conflict_strategy(
         )
 
 
+def _render_dry_run_diff(
+    scan_results: dict,
+    from_tag: str,
+    to_tag: str,
+    sample_limit_per_journal: int = 5,
+) -> None:
+    """Render BEFORE/AFTER diff for a sample of entries in each journal."""
+    import copy
+    import re
+
+    from jrnl.color import colorize
+    from jrnl.journals.Entry import Entry as EntryCls
+
+    for journal_name, result in scan_results.items():
+        journal = result["journal"]
+        matching = journal.find_entries_with_tag(from_tag)
+        if not matching:
+            continue
+
+        print_msg(
+            Message(
+                MsgText.RenameTagDryRunDiffHeader,
+                MsgStyle.NORMAL,
+                {"journal_name": journal_name},
+            )
+        )
+
+        tagsymbols = journal.config["tagsymbols"]
+        tag_re = EntryCls.tag_regex(tagsymbols)
+        from_lower = from_tag.lower()
+
+        sample_entries = matching[:sample_limit_per_journal]
+        total_sample = len(sample_entries)
+
+        for idx, entry in enumerate(sample_entries, 1):
+            date_str = entry.date.strftime(journal.config["timeformat"])
+
+            print_msg(
+                Message(
+                    MsgText.RenameTagDryRunDiffEntryHeader,
+                    MsgStyle.NORMAL,
+                    {"date": date_str, "index": idx, "total": total_sample},
+                )
+            )
+
+            original_text = (str(entry)).rstrip()
+
+            def _recolor(match: re.Match) -> str:
+                t = match.group(1)
+                if t.lower() == from_lower:
+                    return t
+                return t
+
+            before_text = ""
+            pos = 0
+            for m in tag_re.finditer(original_text):
+                before_text += original_text[pos : m.start()]
+                t = m.group(1)
+                if t.lower() == from_lower:
+                    before_text += colorize(t, "red", bold=True)
+                else:
+                    before_text += t
+                pos = m.end()
+            before_text += original_text[pos:]
+
+            def _do_rename(match: re.Match) -> str:
+                t = match.group(1)
+                if t.lower() == from_lower:
+                    prefix = t[0]
+                    body = to_tag[1:] if to_tag[0] in tagsymbols else to_tag
+                    return prefix + body
+                return t
+
+            renamed_text = tag_re.sub(_do_rename, original_text)
+
+            to_lower = to_tag.lower()
+            after_text = ""
+            pos = 0
+            for m in tag_re.finditer(renamed_text):
+                after_text += renamed_text[pos : m.start()]
+                t = m.group(1)
+                if t.lower() == to_lower:
+                    after_text += colorize(t, "green", bold=True)
+                else:
+                    after_text += t
+                pos = m.end()
+            after_text += renamed_text[pos:]
+
+            before_lines = before_text.splitlines()[:4]
+            after_lines = after_text.splitlines()[:4]
+
+            for line in before_lines:
+                print_msg(
+                    Message(
+                        MsgText.RenameTagDryRunDiffBefore,
+                        MsgStyle.NORMAL,
+                        {"text": line[:120]},
+                    )
+                )
+            for line in after_lines:
+                print_msg(
+                    Message(
+                        MsgText.RenameTagDryRunDiffAfter,
+                        MsgStyle.NORMAL,
+                        {"text": line[:120]},
+                    )
+                )
+
+        print_msg(Message(MsgText.RenameTagDryRunDiffSeparator, MsgStyle.NORMAL))
+
+
+
 def _perform_rollback(
     backups: dict,
     processed_journals: list,
@@ -583,6 +695,8 @@ def postconfig_rename_tag(
             )
         )
         return 0
+
+    _render_dry_run_diff(scan_results, from_tag, to_tag)
 
     if args.dry_run:
         print_msg(Message(MsgText.RenameTagDryRunComplete, MsgStyle.NORMAL))

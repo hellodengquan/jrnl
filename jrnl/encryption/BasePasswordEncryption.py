@@ -5,12 +5,16 @@ import logging
 
 from jrnl.encryption.BaseEncryption import BaseEncryption
 from jrnl.exception import JrnlException
-from jrnl.keyring import get_keyring_password
+from jrnl.keyring import clear_cached_password
+from jrnl.keyring import get_cached_password
+from jrnl.keyring import set_cached_password
+from jrnl.keyring import set_keyring_password
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.prompt import create_password
 from jrnl.prompt import prompt_password
+from jrnl.prompt import yesno
 
 
 class BasePasswordEncryption(BaseEncryption):
@@ -41,17 +45,32 @@ class BasePasswordEncryption(BaseEncryption):
     def clear(self):
         self.password = None
         self.check_keyring = False
+        clear_cached_password(self._journal_name)
+
+    def _offer_keyring_persist(self) -> None:
+        if not self.password:
+            return
+        try:
+            if yesno(Message(MsgText.PasswordStoreInKeychain)):
+                set_keyring_password(self.password, self._journal_name)
+                set_cached_password(
+                    self.password, self._journal_name, persist_to_keyring=False
+                )
+        except JrnlException:
+            pass
 
     def encrypt(self, text: str) -> bytes:
         logging.debug("encrypting")
         if not self.password:
             if self.check_keyring and (
-                keyring_pw := get_keyring_password(self._journal_name)
+                keyring_pw := get_cached_password(self._journal_name)
             ):
                 self.password = keyring_pw
 
             if not self.password:
                 self.password = create_password(self._journal_name)
+                set_cached_password(self.password, self._journal_name)
+                self._offer_keyring_persist()
 
         return self._encrypt(text)
 
@@ -59,7 +78,7 @@ class BasePasswordEncryption(BaseEncryption):
         logging.debug("decrypting")
         if not self.password:
             if self.check_keyring and (
-                keyring_pw := get_keyring_password(self._journal_name)
+                keyring_pw := get_cached_password(self._journal_name)
             ):
                 self.password = keyring_pw
 
@@ -67,7 +86,11 @@ class BasePasswordEncryption(BaseEncryption):
                 self._prompt_password()
 
         while (result := self._decrypt(text)) is None:
+            clear_cached_password(self._journal_name)
             self._prompt_password()
+
+        if not get_cached_password(self._journal_name):
+            set_cached_password(self.password, self._journal_name)
 
         return result
 

@@ -236,6 +236,12 @@ class MsgText(Enum):
     PasswordDidNotMatch = "Passwords did not match, please try again"
     WrongPasswordTryAgain = "Wrong password, try again"
     PasswordStoreInKeychain = "Do you want to store the password in your keychain?"
+    PasswordCachedInMemory = """
+        Password for journal "{journal_name}" cached in memory for this session.
+        """
+    PasswordRetrievedFromCache = """
+        Using cached password for journal "{journal_name}".
+        """
 
     # --- Search --- #
     NothingToDelete = """
@@ -393,6 +399,53 @@ class MsgText(Enum):
 
     RenameTagError = """
         Error during tag rename: {error}
+        """
+
+    RenameTagDryRunDiffHeader = """
+        ---- DRY RUN DIFF: journal "{journal_name}" ----
+        """
+
+    RenameTagDryRunDiffEntryHeader = """
+        Entry [{date}] ({index}/{total}):
+        """
+
+    RenameTagDryRunDiffBefore = """
+        BEFORE: {text}
+        """
+
+    RenameTagDryRunDiffAfter = """
+        AFTER : {text}
+        """
+
+    RenameTagDryRunDiffSeparator = """
+        ------------------------------------------------
+        """
+
+    # --- File / Process Locking --- #
+    JournalLockAcquired = """
+        Acquired exclusive lock on journal "{journal_name}".
+        """
+
+    JournalLockWaiting = """
+        Journal "{journal_name}" is locked by PID {pid} ({owner}), waiting {timeout}s...
+        """
+
+    JournalLockTimeout = """
+        Failed to acquire lock on journal "{journal_name}" within {timeout}s.
+        Another process (PID {pid}) may still be modifying it.
+        Lock file: {lock_path}
+        """
+
+    JournalLockStale = """
+        Detected stale lock on journal "{journal_name}" (PID {pid} not running), removing...
+        """
+
+    JournalLockReleased = """
+        Released lock on journal "{journal_name}".
+        """
+
+    JournalLockWarning = """
+        WARNING: Could not acquire lock on journal "{journal_name}". Concurrent modifications may cause data loss!
         """
 
     # --- Deprecation --- #

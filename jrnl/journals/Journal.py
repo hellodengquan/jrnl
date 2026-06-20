@@ -9,6 +9,8 @@ import re
 from jrnl import time
 from jrnl.config import validate_journal_name
 from jrnl.encryption import determine_encryption_method
+from jrnl.lock import JournalLock
+from jrnl.lock import locked_journal
 from jrnl.messages import Message
 from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
@@ -50,6 +52,7 @@ class Journal:
         self.name = name
         self.entries = []
         self.encryption_method = None
+        self._lock: JournalLock | None = None
 
         # Track changes to journal in session. Modified is tracked in Entry
         self.added_entry_count = 0
@@ -139,9 +142,11 @@ class Journal:
     def write(self, filename: str | None = None) -> None:
         """Dumps the journal into the config file, overwriting it"""
         filename = filename or self.config["journal"]
-        text = self._to_text()
-        text = self._encrypt(text)
-        self._store(filename, text)
+
+        with locked_journal(self.name, filename, timeout=60.0):
+            text = self._to_text()
+            text = self._encrypt(text)
+            self._store(filename, text)
 
     def validate_parsing(self) -> bool:
         """Confirms that the jrnl is still parsed correctly after conversion to text."""
