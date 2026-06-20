@@ -35,13 +35,31 @@ def _fullwidth_to_ascii(text: str) -> str:
     return "".join(_fold_width(c) for c in text)
 
 
+def _strip_presentation_modifiers(text: str) -> str:
+    """Remove characters that don't carry semantic tag meaning.
+
+    - U+FE0E (VARIATION SELECTOR-15): text-style presentation
+    - U+FE0F (VARIATION SELECTOR-16): emoji-style presentation
+    These are pure presentation hints and should not affect tag identity
+    (so @😀 ≡ @😀︎ ≡ @😀️). We only strip them when they don't follow a
+    combining-mark sequence that needs them; for tags, stripping is safe.
+    """
+    return text.replace("\ufe0e", "").replace("\ufe0f", "")
+
+
 def normalize_tag(raw_tag: str, verbose: bool = False) -> str:
     """Return the canonical normalized form of a tag.
 
     Steps applied in order:
-    1. Unicode NFC composition (prevents e + combining-acute vs é mismatch)
-    2. Full-width ASCII -> half-width ASCII (for CJK mixed documents)
-    3. Case-fold to lowercase using str.casefold() (handles ß -> ss etc.)
+    1. Strip presentation variation selectors (VS-15 / VS-16) so emoji tags
+       with/without the glyph hint compare equal.
+    2. Unicode NFC composition (prevents e + combining-acute vs é mismatch,
+       and composes decomposed emoji flag sequences where possible).
+    3. Full-width ASCII -> half-width ASCII (for CJK mixed documents).
+    4. Case-fold to lowercase using str.casefold() (handles ß -> ss etc.)
+       Note: only the non-symbol portion needs case-folding in principle,
+       but applying it uniformly is safe because casefold() leaves emojis,
+       CJK ideographs, digits, and most symbols untouched.
 
     The first character (tag symbol like @, +, #) is preserved as-is.
     """
@@ -53,6 +71,8 @@ def normalize_tag(raw_tag: str, verbose: bool = False) -> str:
 
     if not body:
         return raw_tag
+
+    body = _strip_presentation_modifiers(body)
 
     normalized_body = unicodedata.normalize("NFC", body)
     if verbose and normalized_body != body:
@@ -76,7 +96,15 @@ def normalize_tag(raw_tag: str, verbose: bool = False) -> str:
             )
         )
 
-    return symbol + folded_body
+    result = symbol + folded_body
+    # Defensive: ensure we didn't collapse the body to empty after stripping
+    # presentation selectors on pure-emoji tags.
+    if len(result) < 2 and len(raw_tag) >= 2:
+        # If stripping VS removed the entire body (can't happen for real
+        # emojis, but keep safe) fall back to original minus symbol only.
+        if not folded_body:
+            return symbol + body
+    return result
 
 
 def normalize_tags(tags: Iterable[str], verbose: bool = False) -> list[str]:

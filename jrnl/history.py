@@ -142,6 +142,30 @@ class JournalHistory:
     def peek_redo(self) -> Optional[HistoryEntry]:
         return self._redo_stack[-1] if self._redo_stack else None
 
+    def pop_last(self, n: int = 1) -> int:
+        """Discard the last n entries from the undo stack *without* applying
+        their undo functions. Used when a mutation happened in-memory but
+        was rolled back (or failed to write), so the corresponding history
+        entries must not remain.
+
+        Returns the number of entries actually removed.
+        """
+        if n <= 0:
+            return 0
+        n = min(n, len(self._undo_stack))
+        if n == 0:
+            return 0
+        removed = self._undo_stack[-n:]
+        self._undo_stack[-n:] = []
+        # Pop invalidates redo (caller is effectively rewriting the tail of
+        # history); stay consistent with push() semantics.
+        self._redo_stack.clear()
+        logging.debug(
+            f"Popped {n} history entries (ops: "
+            f"{', '.join(e.operation for e in removed)})"
+        )
+        return n
+
     def clear(self) -> None:
         self._undo_stack.clear()
         self._redo_stack.clear()

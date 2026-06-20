@@ -40,6 +40,7 @@ class JournalSearchIndex:
         """Mark the index as needing a full rebuild (e.g. after bulk import)."""
         self._dirty = True
 
+    @property
     def is_dirty(self) -> bool:
         return self._dirty or self._entry_count_at_build != len(self.journal.entries)
 
@@ -83,7 +84,7 @@ class JournalSearchIndex:
         return re.findall(r"\w+", text, flags=re.UNICODE)
 
     def _ensure_fresh(self) -> None:
-        if self.is_dirty():
+        if self.is_dirty:
             self.rebuild()
 
     # ----- Tag index API ----- #

@@ -433,7 +433,7 @@ def _perform_rollback(
             backup_restored = _restore_from_backup(backup_path, journal_path)
 
         if not backup_restored:
-            for proc_name, rollback_data, _ in reversed(processed_journals):
+            for proc_name, rollback_data, _, _ in reversed(processed_journals):
                 if proc_name == journal_name and rollback_data:
                     journal = scan_results[journal_name]["journal"]
                     journal.rollback_tag_rename(rollback_data)
@@ -737,16 +737,28 @@ def postconfig_rename_tag(
                 backup_path = _backup_journal_file(journal_path)
             backups[journal_name] = (backup_path, journal_path)
 
-            modified_count, rollback_data = journal.rename_tag(from_tag, to_tag)
+            # Don't commit history until write() succeeds; otherwise history
+            # stack and disk state can diverge (e.g. if later journal fails).
+            modified_count, rollback_data = journal.rename_tag(
+                from_tag, to_tag, commit_history=False
+            )
 
             try:
                 journal.write()
             except Exception as e:
                 logging.error(f"Failed to write journal {journal_name}: {e}")
+                # In-memory change is now stale; rollback + discard pending history.
                 error_occurred = e
                 break
 
-            processed_journals.append((journal_name, rollback_data, modified_count))
+            # Write succeeded: flush the pending history entry into the
+            # real undo/redo stack so that post-write undo() will work.
+            if modified_count > 0:
+                journal._commit_pending_history()
+
+            processed_journals.append(
+                (journal_name, rollback_data, modified_count, journal)
+            )
 
             print_msg(
                 Message(
@@ -772,6 +784,22 @@ def postconfig_rename_tag(
         recovery_status = _perform_rollback(
             backups, processed_journals, all_results
         )
+
+        # --- History consistency cleanup ---
+        # After rollback, any history entries that were committed to the
+        # undo stack are now stale (because rollback already reverted the
+        # in-memory state + search index). Pop exactly one per processed
+        # journal (we committed one HistoryEntry per successful rename_tag).
+        for item in processed_journals:
+            # processed_journals was extended to (name, rb, count, journal)
+            journal = item[3]
+            # 1) Discard anything in pending that never got committed
+            #    (should be 0 in current flow, but stay defensive).
+            journal._abort_pending_history(also_pop_last_n=0)
+            # 2) Pop the HistoryEntry that was committed after write().
+            #    (rollback already reversed the state change in memory).
+            if item[2] > 0:
+                journal._abort_pending_history(also_pop_last_n=1)
 
         recovered = 0
         failed = 0

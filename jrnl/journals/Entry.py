@@ -80,7 +80,32 @@ class Entry:
 
     @staticmethod
     def tag_regex(tagsymbols: str) -> re.Pattern:
-        pattern = rf"(?<!\S)([{tagsymbols}][-+*#/\w\u00A0-\uFFFF]+)"
+        """Unicode-aware tag pattern matching.
+
+        Tag body includes, in addition to the usual ASCII word/punctuation chars:
+          * BMP Supplementary: U+00A0..U+FFFF (covers CJK, Latin-A/B, etc.)
+          * Astral planes: U+1F000..U+10FFFF (emoji, CJK ext-B+, etc.)
+          * ZWJ U+200D + combining enclosing keycap U+20E3 + variation selectors U+FE00..U+FE0F
+            (needed for emoji ZWJ-sequences, VS-16, and keycap sequences like 1️⃣)
+          * Tag specifiers U+E0000..U+E007F (subdivision flags)
+        """
+        pattern = (
+            r"(?<!\S)(["
+            + tagsymbols
+            + r"]["
+            + r"-+*/#"
+            + r"\w"
+            + r"\u00A0-\u200C"
+            + r"\u200D"
+            + r"\u200E-\u20CF"
+            + r"\u20E3"
+            + r"\u20E4-\uFEFF"
+            + r"\uFE00-\uFE0F"
+            + r"\uFE10-\uFFFF"
+            + r"\U0001F000-\U0010FFFF"
+            + r"\U000E0000-\U000E007F"
+            + r"]+)"
+        )
         return re.compile(pattern, re.UNICODE)
 
     def _parse_tags(self) -> set[str]:

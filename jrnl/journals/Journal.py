@@ -59,6 +59,7 @@ class Journal:
         self._lock: JournalLock | None = None
         self._history = JournalHistory()
         self._search_index = JournalSearchIndex(self)
+        self._pending_history: list[HistoryEntry] = []
 
         # Track changes to journal in session. Modified is tracked in Entry
         self.added_entry_count = 0
@@ -460,7 +461,7 @@ class Journal:
         return sum(1 for e in self.entries if norm_tag in e.tags)
 
     def rename_tag(
-        self, from_tag: str, to_tag: str
+        self, from_tag: str, to_tag: str, commit_history: bool = True
     ) -> tuple[int, dict[int, dict[str, str]]]:
         """
         Rename a tag in all matching entries.
@@ -469,7 +470,10 @@ class Journal:
 
         Also:
         - Updates the search index
-        - Pushes a HistoryEntry onto the undo stack (with redo=reverse rename)
+        - If commit_history is True: pushes a HistoryEntry onto the undo stack immediately.
+        - If commit_history is False: stashes a pending HistoryEntry; caller must call
+          _commit_pending_history() after a successful write() or _abort_pending_history()
+          on failure to keep history consistent with disk state.
         """
         from_tag_norm = normalize_tag(from_tag)
         to_tag_norm = normalize_tag(to_tag)
@@ -526,22 +530,65 @@ class Journal:
             def _do_redo():
                 self._redo_tag_rename(from_tag, to_tag, rollback_data, tagsymbols)
 
-            self._history.push(
-                HistoryEntry(
-                    operation="rename_tag",
-                    description=f"Rename tag {from_tag} -> {to_tag}",
-                    entry_count=modified_count,
-                    undo_fn=_do_undo,
-                    redo_fn=_do_redo,
-                    metadata={
-                        "from_tag": from_tag,
-                        "to_tag": to_tag,
-                        "journal_name": self.name,
-                    },
-                )
+            entry_obj = HistoryEntry(
+                operation="rename_tag",
+                description=f"Rename tag {from_tag} -> {to_tag}",
+                entry_count=modified_count,
+                undo_fn=_do_undo,
+                redo_fn=_do_redo,
+                metadata={
+                    "from_tag": from_tag,
+                    "to_tag": to_tag,
+                    "journal_name": self.name,
+                    "rollback_count": len(rollback_data),
+                },
             )
 
+            if commit_history:
+                self._history.push(entry_obj)
+            else:
+                self._pending_history.append(entry_obj)
+
         return modified_count, rollback_data
+
+    def _commit_pending_history(self, count_hint: int | None = None) -> int:
+        """Flush pending history entries to the real undo stack.
+
+        Call this only after a successful write() so the history stack
+        accurately reflects what's on disk.
+
+        If count_hint is given, commit at most that many pending entries
+        (useful for batched operations). Returns the number committed.
+        """
+        if count_hint is None or count_hint >= len(self._pending_history):
+            to_commit = self._pending_history
+            self._pending_history = []
+        else:
+            to_commit = self._pending_history[:count_hint]
+            self._pending_history = self._pending_history[count_hint:]
+
+        for entry in to_commit:
+            self._history.push(entry)
+
+        return len(to_commit)
+
+    def _abort_pending_history(self, also_pop_last_n: int = 0) -> int:
+        """Discard pending history entries that were never written to disk.
+
+        If `also_pop_last_n` > 0, additionally pop that many operations from
+        the real undo stack (used when we pushed eagerly but a later
+        cross-journal failure forces a rollback).
+
+        Returns the total number of entries discarded.
+        """
+        discarded = len(self._pending_history)
+        self._pending_history = []
+
+        if also_pop_last_n > 0:
+            actually_removed = self._history.pop_last(also_pop_last_n)
+            discarded += actually_removed
+
+        return discarded
 
     def _redo_tag_rename(
         self,
