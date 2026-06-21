@@ -53,12 +53,12 @@ class Entry:
         lines = raw_text.splitlines()
         if lines:
             first_line_stripped = lines[0].strip()
-            if first_line_stripped.endswith("*"):
-                self.starred = True
-                first_line_stripped = first_line_stripped.rstrip("*").rstrip()
             if first_line_stripped.endswith("!"):
                 self.draft = True
                 first_line_stripped = first_line_stripped.rstrip("!").rstrip()
+            if first_line_stripped.endswith("*"):
+                self.starred = True
+                first_line_stripped = first_line_stripped.rstrip("*").rstrip()
             raw_text = first_line_stripped + "\n" + "\n".join(lines[1:])
         self._title, self._body = split_title(raw_text)
         if self._tags is None:

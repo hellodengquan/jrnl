@@ -205,6 +205,173 @@ class TestFormalizeArchiveLanding:
         assert len(inbox.entries) == 0, "All drafts were formalized - inbox must be empty"
 
 
+class TestMultiJournalArchiveSource:
+    """In a multi-journal setup, formalize always archives in-place within the
+    source journal — entries are never moved across journals.
+
+    This mirrors how jrnl handles --formalize-drafts: it opens a single
+    journal (selected by args.journal_name), operates on its entries, and
+    writes back to that same journal.
+    """
+
+    def test_formalize_only_affects_source_journal(self):
+        """Promoting drafts in one journal must not touch another journal's
+        entries."""
+        work = Journal()
+        work.new_entry("work draft!", draft=True)
+        work.new_entry("work normal")
+
+        personal = Journal()
+        personal.new_entry("personal draft!", draft=True)
+        personal.new_entry("personal normal")
+
+        work_drafts = [e for e in work.entries if e.draft]
+        work.formalize_entries(work_drafts)
+
+        assert all(e.draft is False for e in work.entries)
+        assert any(e.draft is True for e in personal.entries), (
+            "Personal journal must remain untouched after formalizing work journal"
+        )
+
+    def test_formalize_preserves_non_draft_entries_in_source(self):
+        """Non-draft entries in the source journal are not affected."""
+        j = Journal()
+        draft = j.new_entry("draft!", draft=True)
+        normal = j.new_entry("already formal")
+        starred = j.new_entry("important *")
+
+        j.formalize_entries([draft])
+
+        assert draft.draft is False
+        assert normal.draft is False
+        assert normal.starred is False
+        assert starred.starred is True
+        assert starred.draft is False
+
+    def test_each_journal_has_independent_inbox(self):
+        """Each journal maintains its own independent inbox."""
+        work = Journal()
+        work.new_entry("w1!", draft=True)
+        work.new_entry("w2!", draft=True)
+
+        personal = Journal()
+        personal.new_entry("p1!", draft=True)
+
+        work_drafts = [e for e in work.entries if e.draft]
+        work.formalize_entries(work_drafts)
+
+        work_inbox = Journal()
+        work_inbox.entries = list(work.entries)
+        work_inbox.filter(draft=True)
+        assert len(work_inbox.entries) == 0
+
+        personal_inbox = Journal()
+        personal_inbox.entries = list(personal.entries)
+        personal_inbox.filter(draft=True)
+        assert len(personal_inbox.entries) == 1
+
+
+class TestEditorRoundtrip:
+    """Tests that draft status survives the editable_str → parse_editable_str
+    round-trip, which is the path taken when using vim or other external
+    editors via ``jrnl --edit``.
+
+    The serialization format for draft entries is::
+
+        [2024-01-01 09:00] Title !
+
+    On re-parse, the trailing ``!`` suffix is detected by _parse_text()
+    and ``entry.draft`` is set to True.
+    """
+
+    def test_draft_preserved_through_editable_str_roundtrip(self):
+        """Draft entries that are not modified by the user must remain draft
+        after the round-trip through an external editor."""
+        j = Journal()
+        j.new_entry("my draft!", draft=True)
+        j.new_entry("normal entry")
+
+        editable = j.editable_str()
+        assert " !" in editable
+
+        j2 = Journal()
+        j2.parse_editable_str(editable)
+
+        drafts = [e for e in j2.entries if e.draft]
+        assert len(drafts) == 1
+        assert drafts[0].title == "my draft"
+
+    def test_draft_removed_through_editor(self):
+        """If the user removes the ``!`` marker in the editor, the entry
+        should be treated as formal (non-draft) after parsing."""
+        j = Journal()
+        j.new_entry("my draft!", draft=True)
+
+        editable = j.editable_str()
+        edited = editable.replace(" !", "")
+
+        j2 = Journal()
+        j2.parse_editable_str(edited)
+
+        assert all(e.draft is False for e in j2.entries)
+
+    def test_draft_added_through_editor(self):
+        """If the user adds ``!`` to a title in the editor, the entry should
+        become a draft."""
+        j = Journal()
+        j.new_entry("my entry")
+
+        editable = j.editable_str()
+        edited = editable.replace("my entry", "my entry !")
+
+        j2 = Journal()
+        j2.parse_editable_str(edited)
+
+        drafts = [e for e in j2.entries if e.draft]
+        assert len(drafts) == 1
+        assert drafts[0].title == "my entry"
+
+    def test_starred_and_draft_preserved_through_editor(self):
+        """Both ``*`` (starred) and ``!`` (draft) markers must survive the
+        editor round-trip when they appear together.
+
+        The serialized format is ``[date] Title * !`` — ``!`` is always
+        the last suffix so it must be parsed first.
+        """
+        j = Journal()
+        e = j.new_entry("important draft *", draft=True)
+        assert e.starred is True
+        assert e.draft is True
+
+        editable = j.editable_str()
+        assert " *" in editable
+        assert " !" in editable
+
+        j2 = Journal()
+        j2.parse_editable_str(editable)
+
+        entry = j2.entries[0]
+        assert entry.starred is True, "Starred marker must survive editor round-trip"
+        assert entry.draft is True, "Draft marker must survive editor round-trip"
+
+    def test_formalized_entry_stays_formal_after_edit(self):
+        """After formalize, editing the journal must not accidentally
+        re-draft the entry (i.e. the ``!`` marker is gone from the
+        serialized form)."""
+        j = Journal()
+        entry = j.new_entry("will be promoted!", draft=True)
+
+        j.formalize_entries([entry])
+
+        editable = j.editable_str()
+        assert " !" not in editable
+
+        j2 = Journal()
+        j2.parse_editable_str(editable)
+
+        assert all(e.draft is False for e in j2.entries)
+
+
 class TestJournalFilterDraft:
     def test_filter_draft_only(self, journal):
         journal.filter(draft=True)

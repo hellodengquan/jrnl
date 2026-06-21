@@ -498,17 +498,17 @@ class LegacyJournal(Journal):
                 if new_date and current_entry:
                     entries.append(current_entry)
 
-                if line.endswith("*"):
-                    starred = True
-                    line = line[:-1]
-                else:
-                    starred = False
-
                 if line.endswith("!"):
                     draft = True
                     line = line[:-1]
                 else:
                     draft = False
+
+                if line.endswith("*"):
+                    starred = True
+                    line = line[:-1]
+                else:
+                    starred = False
 
                 current_entry = Entry(
                     self, date=new_date, text=line[date_length + 1 :], starred=starred, draft=draft

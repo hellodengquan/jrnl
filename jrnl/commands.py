@@ -84,9 +84,17 @@ def postconfig_formalize(
          and marks entries as modified.
       4. Persists the change to disk via :meth:`Journal.write`.
 
-    **Where are the entries archived?**
+    **Which journal do entries get archived to?**
 
-    The entries stay in the same journal file(s) they were read from:
+    Entries are **always archived in-place in their source journal**.
+    There is no "archive journal" — "archiving" is a status change, not a
+    file move. In a multi-journal setup (e.g. ``work``, ``personal``,
+    ``ideas``), ``jrnl work --formalize-drafts`` only touches the
+    ``work`` journal; the ``personal`` and ``ideas`` journals are
+    untouched.
+
+    Concretely, the promoted entry stays in the same file(s) it was
+    read from:
 
     *   For a plain Journal: the single text file at
         ``config['journal']`` (e.g. ``~/.local/share/jrnl/journal.txt``).
