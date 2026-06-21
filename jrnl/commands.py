@@ -71,7 +71,34 @@ def postconfig_list(args: argparse.Namespace, config: dict, **_) -> int:
 def postconfig_formalize(
     args: argparse.Namespace, config: dict, **_
 ) -> int:
-    """Formalize all draft entries in the specified journal by removing their draft status."""
+    """Standalone command: promote ALL drafts in the selected journal.
+
+    Unlike ``--formalize`` / ``--archive`` (which act on filtered search
+    results and require interactive confirmation), ``--formalize-drafts`` is
+    a standalone postconfig command that:
+
+      1. Opens the selected journal (scoped from args, default or named).
+      2. Collects every entry where ``entry.draft is True`` - i.e. the full
+         inbox collection, ignoring any search filters.
+      3. Calls :meth:`Journal.formalize_entries` which clears draft status
+         and marks entries as modified.
+      4. Persists the change to disk via :meth:`Journal.write`.
+
+    **Where are the entries archived?**
+
+    The entries stay in the same journal file(s) they were read from:
+
+    *   For a plain Journal: the single text file at
+        ``config['journal']`` (e.g. ``~/.local/share/jrnl/journal.txt``).
+    *   For a Folder Journal: the per-day ``.txt`` files under
+        ``<journal_dir>/YYYY/MM/DD.txt``.
+    *   For a DayOne Journal: the ``.doentry`` plist files inside the
+        DayOne bundle.
+
+    The only difference is that the ``!`` draft suffix is no longer
+    written to disk, so the entries will no longer appear in ``--draft``
+    / ``--inbox`` views - that is what "archived" means in jrnl's model.
+    """
     from jrnl.journals import open_journal
 
     journal = open_journal(args.journal_name, config)

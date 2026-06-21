@@ -340,7 +340,33 @@ class Journal:
             entry.modified = True
 
     def formalize_entries(self, entries_to_formalize: list[Entry]) -> None:
-        """Formalizes entries by removing their draft status."""
+        """Formalizes (archives) entries by removing their draft status.
+
+        **Archiving mechanism in jrnl**
+
+        In jrnl's journal model, every entry lives inside the single journal
+        file (or per-date file inside the journal folder) specified by the
+        journal's config. There is no separate "archive file" - "archiving"
+        here is a *status change*, not a file move:
+
+          1. ``entry.draft = False``  -  Removes the entry from the "inbox"
+             collection (i.e. it will no longer show up under ``--draft``,
+             ``--inbox`` filters).
+          2. ``entry.modified = True`` -  Marks the entry so ``journal.write()``
+             will persist its updated state, which means the ``!`` suffix
+             marker is stripped when it is serialized back to disk.
+          3. When the caller invokes ``journal.write()`` afterwards, the
+             updated entry is serialized back to the *same* journal file it
+             came from (e.g. ``~/.local/share/jrnl/journal.txt`` for the
+             default journal, or ``<journal_dir>/YYYY/MM/DD.txt`` when using
+             Folder-style storage).
+
+        Parameters
+        ----------
+        entries_to_formalize:
+            List of Entry objects whose draft status should be cleared. They
+            must already be members of ``self.entries``.
+        """
         for entry in entries_to_formalize:
             entry.draft = False
             entry.modified = True
@@ -406,6 +432,7 @@ class Journal:
         if not date:  # Still nothing? Meh, just live in the moment.
             date = time.parse("now")
         entry = Entry(self, date, raw, starred=starred, draft=draft_from_text)
+        entry._parse_text()
         entry.modified = True
         self.entries.append(entry)
         if sort:

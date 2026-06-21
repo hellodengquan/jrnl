@@ -24,6 +24,16 @@ class Entry:
         starred: bool = False,
         draft: bool = False,
     ):
+        """Creates a new Entry.
+
+        draft defaults to False for backward compatibility:
+        - Entries loaded from legacy journal files (without draft markers)
+          are always treated as formal (non-draft) entries.
+        - Entries imported from DayOne/Folder/jrnl formats, which have no
+          native draft concept, are always treated as formal.
+        Only entries explicitly created with draft=True or carrying the
+        ``!`` suffix marker in their title are considered drafts.
+        """
         self.journal = journal  # Reference to journal mainly to access its config
         self.date = date or datetime.datetime.now()
         self.text = text

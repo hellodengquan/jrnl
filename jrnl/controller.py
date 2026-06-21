@@ -407,6 +407,20 @@ def _formalize_search_results(
     old_entries: list["Entry"],
     **kwargs,
 ) -> None:
+    """Interactively promote (formalize + archive) selected search results.
+
+    The user is prompted per-entry (``FormalizeEntryQuestion``) to confirm
+    which of the currently filtered entries should be promoted.  Confirmed
+    entries flow through :meth:`Journal.formalize_entries`, which performs
+    the actual archiving steps documented there.  On completion the journal
+    is written back to its original file via :meth:`Journal.write`.
+
+    If the caller invoked ``--inbox`` or ``--draft`` before this action, the
+    filtered set will be draft entries only; the user may however combine any
+    search filters (date range, tags, journal) with ``--formalize`` - in that
+    case the prompt will only offer entries that matched those filters AND
+    happen to still be in draft state.
+    """
     entries_to_formalize = journal.prompt_action_entries(MsgText.FormalizeEntryQuestion)
 
     journal.entries = old_entries

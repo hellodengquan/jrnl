@@ -78,6 +78,133 @@ class TestEntryDraftStatus:
         assert entry.draft is True
 
 
+class TestBackwardCompatibility:
+    """Tests for historical journal entries that have no draft field."""
+
+    def test_parse_legacy_format_no_draft_marker_defaults_false(self):
+        """Entries read from a pre-draft-format journal file should default to
+        draft=False (i.e. formal entries)."""
+        j = Journal()
+        legacy_text = (
+            "[2023-05-10 09:00] Old entry without any special markers\n"
+            "Just some body text\n"
+            "\n"
+            "[2023-05-11 10:00] Another old entry *\n"
+            "This one was starred only\n"
+        )
+        parsed = j._parse(legacy_text)
+        assert len(parsed) == 2
+        for e in parsed:
+            assert e.draft is False, (
+                f"Pre-draft entry '{e.title}' should default to draft=False"
+            )
+
+    def test_parse_roundtrip_formalized_entry_stays_formal(self):
+        """After formalize+write, re-reading the file should still show the
+        entry as formal (draft=False) - i.e. the change is persisted."""
+        j = Journal()
+        original_entry = j.new_entry("will be formalized!", draft=True)
+        assert original_entry.draft is True
+
+        j.formalize_entries([original_entry])
+        assert original_entry.draft is False
+        assert original_entry.modified is True
+
+        serialized = str(original_entry)
+        assert " !" not in serialized, (
+            "Draft marker '!' must be removed from serialized form after formalize"
+        )
+
+        round_trip = j._parse(serialized)
+        assert len(round_trip) == 1
+        assert round_trip[0].draft is False
+
+    def test_legacy_journal_format_no_draft_defaults_false(self):
+        """LegacyJournal (jrnl 1.x) lines without '!' must default to
+        draft=False."""
+        from jrnl.journals.Journal import LegacyJournal
+        j = LegacyJournal()
+        legacy_text = (
+            "2023-01-15 14:30 Legacy entry title\n"
+            "Some body\n"
+            "\n"
+            "2023-01-16 09:15 Another legacy title *\n"
+            "Starred body\n"
+        )
+        parsed = j._parse(legacy_text)
+        assert len(parsed) == 2
+        for e in parsed:
+            assert e.draft is False
+
+
+class TestFormalizeArchiveLanding:
+    """Tests that promote (formalize) correctly archives entries - i.e. the
+    entries are written back to the same journal in-place with draft cleared.
+    """
+
+    def test_formalize_sets_modified_flag(self, journal):
+        """Archived entries must be flagged modified so write() persists them."""
+        draft_entries = [e for e in journal.entries if e.draft]
+        for e in draft_entries:
+            e.modified = False
+
+        journal.formalize_entries(draft_entries)
+
+        for e in draft_entries:
+            assert e.draft is False
+            assert e.modified is True, (
+                "Entry.modified must be True after formalize so write() persists the change"
+            )
+
+    def test_formalize_removes_bang_from_serialization(self):
+        """After formalize, the '!' draft marker must be gone from str(entry).
+
+        This is the concrete "landing" step - once the marker is gone from the
+        serialized form, re-reading the journal won't re-flag the entry as a
+        draft and it will no longer show up under --draft / --inbox.
+        """
+        j = Journal()
+        entry = j.new_entry("get organized later!", draft=True)
+        before = str(entry)
+        assert " !" in before
+
+        j.formalize_entries([entry])
+        after = str(entry)
+        assert " !" not in after
+        assert entry.title == "get organized later"
+
+    def test_formalized_entry_not_in_inbox_filter(self, journal):
+        """After being formalized, the entry must no longer match --draft."""
+        draft_entries = [e for e in journal.entries if e.draft]
+        journal.formalize_entries(draft_entries)
+
+        journal_after = Journal()
+        journal_after.entries = list(journal.entries)
+        journal_after.filter(draft=True)
+        assert len(journal_after.entries) == 0, (
+            "Formalized entries should NOT appear when filtering for draft=True"
+        )
+
+    def test_all_drafts_formalized_leaves_no_inbox(self):
+        """Simulate the --formalize-drafts standalone command path: after
+        running formalize_entries on every draft, the inbox should be empty."""
+        j = Journal()
+        j.new_entry("todo 1!", draft=True)
+        j.new_entry("todo 2!", draft=True)
+        j.new_entry("already done")
+        j.new_entry("todo 3!", draft=True)
+
+        assert len([e for e in j.entries if e.draft]) == 3
+
+        all_drafts = [e for e in j.entries if e.draft]
+        j.formalize_entries(all_drafts)
+
+        inbox = Journal()
+        inbox.entries = list(j.entries)
+        inbox.filter(draft=True)
+        assert len(inbox.entries) == 0, "All drafts were formalized - inbox must be empty"
+
+
 class TestJournalFilterDraft:
     def test_filter_draft_only(self, journal):
         journal.filter(draft=True)
