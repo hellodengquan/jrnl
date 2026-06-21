@@ -41,7 +41,8 @@ class XMLExporter(JSONExporter):
         entry_el.setAttribute("date", entry.date.isoformat())
         if hasattr(entry, "uuid"):
             entry_el.setAttribute("uuid", entry.uuid)
-        entry_el.setAttribute("starred", entry.starred)
+        entry_el.setAttribute("starred", str(entry.starred))
+        entry_el.setAttribute("draft", str(entry.draft))
         tags = entry.tags
         for tag in tags:
             tag_el = doc.createElement("tag")

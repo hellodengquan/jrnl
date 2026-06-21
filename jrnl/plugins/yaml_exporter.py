@@ -123,6 +123,7 @@ class YAMLExporter(TextExporter):
             "title: {title}\n"
             "date: {date}\n"
             "starred: {starred}\n"
+            "draft: {draft}\n"
             "tags: {tags}\n"
             "{dayone}body: |{body}{end}"
         ).format(
@@ -130,6 +131,7 @@ class YAMLExporter(TextExporter):
             date=date_str,
             title=entry.title,
             starred=entry.starred,
+            draft=entry.draft,
             tags=", ".join([tag[1:] for tag in entry.tags]),
             dayone=dayone_attributes,
             body=spacebody,

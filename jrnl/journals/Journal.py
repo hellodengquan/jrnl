@@ -248,6 +248,8 @@ class Journal:
         strict=False,
         contains=[],
         exclude=[],
+        draft=False,
+        exclude_draft=False,
     ):
         """Removes all entries from the journal that don't match the filter.
 
@@ -257,6 +259,8 @@ class Journal:
         start_date and end_date define a timespan by which to filter.
 
         starred limits journal to starred entries
+
+        draft limits journal to draft entries
 
         If strict is True, all tags must be present in an entry. If false, the
 
@@ -289,6 +293,7 @@ class Journal:
             if (not tags or has_tags(entry.tags))
             and (not (starred or exclude_starred) or entry.starred == starred)
             and (not (tagged or exclude_tagged) or bool(entry.tags) == tagged)
+            and (not (draft or exclude_draft) or entry.draft == draft)
             and (not month or entry.date.month == compare_d.month)
             and (not day or entry.date.day == compare_d.day)
             and (not year or entry.date.year == compare_d.year)
@@ -334,6 +339,12 @@ class Journal:
             entry.date = date
             entry.modified = True
 
+    def formalize_entries(self, entries_to_formalize: list[Entry]) -> None:
+        """Formalizes entries by removing their draft status."""
+        for entry in entries_to_formalize:
+            entry.draft = False
+            entry.modified = True
+
     def prompt_action_entries(self, msg: MsgText) -> list[Entry]:
         """Prompts for action for each entry in a journal, using given message.
         Returns the entries the user wishes to apply the action on."""
@@ -354,7 +365,7 @@ class Journal:
 
         return to_act
 
-    def new_entry(self, raw: str, date=None, sort: bool = True) -> Entry:
+    def new_entry(self, raw: str, date=None, sort: bool = True, draft: bool = False) -> Entry:
         """Constructs a new entry from some raw text input.
         If a date is given, it will parse and use this, otherwise scan for a date in
         the input first.
@@ -365,6 +376,7 @@ class Journal:
         sep = re.search(r"\n|[?!.]+ +\n?", raw)
         first_line = raw[: sep.end()].strip() if sep else raw
         starred = False
+        draft_from_text = draft
 
         if not date:
             colon_pos = first_line.find(": ")
@@ -375,7 +387,9 @@ class Journal:
                     default_minute=self.config["default_minute"],
                 )
                 if date:  # Parsed successfully, strip that from the raw text
-                    starred = raw[:colon_pos].strip().endswith("*")
+                    date_prefix = raw[:colon_pos].strip()
+                    starred = date_prefix.endswith("*")
+                    draft_from_text = draft_from_text or date_prefix.endswith("!")
                     raw = raw[colon_pos + 1 :].strip()
         starred = (
             starred
@@ -383,9 +397,15 @@ class Journal:
             or first_line.endswith("*")
             or raw.startswith("*")
         )
+        draft_from_text = (
+            draft_from_text
+            or first_line.startswith("!")
+            or first_line.endswith("!")
+            or raw.startswith("!")
+        )
         if not date:  # Still nothing? Meh, just live in the moment.
             date = time.parse("now")
-        entry = Entry(self, date, raw, starred=starred)
+        entry = Entry(self, date, raw, starred=starred, draft=draft_from_text)
         entry.modified = True
         self.entries.append(entry)
         if sort:
@@ -457,8 +477,14 @@ class LegacyJournal(Journal):
                 else:
                     starred = False
 
+                if line.endswith("!"):
+                    draft = True
+                    line = line[:-1]
+                else:
+                    draft = False
+
                 current_entry = Entry(
-                    self, date=new_date, text=line[date_length + 1 :], starred=starred
+                    self, date=new_date, text=line[date_length + 1 :], starred=starred, draft=draft
                 )
             except ValueError:
                 # Happens when we can't parse the start of the line as an date.

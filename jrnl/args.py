@@ -42,14 +42,9 @@ class IgnoreNoneAppendAction(argparse._AppendAction):
 def parse_not_arg(
     args: list[str], parsed_args: argparse.Namespace, parser: argparse.ArgumentParser
 ) -> argparse.Namespace:
-    """
-    It's possible to use -not as a precursor to -starred and -tagged
-    to reverse their behaviour, however this requires some extra logic
-    to parse, and to ensure we still do not allow passing an empty -not
-    """
-
     parsed_args.exclude_starred = False
     parsed_args.exclude_tagged = False
+    parsed_args.exclude_draft = False
 
     if "-not-starred" in "".join(args):
         parsed_args.starred = False
@@ -57,8 +52,11 @@ def parse_not_arg(
     if "-not-tagged" in "".join(args):
         parsed_args.tagged = False
         parsed_args.exclude_tagged = True
+    if "-not-draft" in "".join(args):
+        parsed_args.draft = False
+        parsed_args.exclude_draft = True
     if "-not" in args and not any(
-        [parsed_args.exclude_starred, parsed_args.exclude_tagged, parsed_args.excluded]
+        [parsed_args.exclude_starred, parsed_args.exclude_tagged, parsed_args.excluded, parsed_args.exclude_draft]
     ):
         parser.error("argument -not: expected 1 argument")
 
@@ -201,9 +199,13 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
 
         jrnl *And underneath was a tiny little stick.
 
-    Please note that asterisks might be a special character in your shell, so you
-    might have to escape them. When in doubt about escaping, put quotes around
-    your entire entry:
+    You can also mark entries as drafts (for your inbox) with an exclamation mark:
+
+        jrnl !Quick note to organize later
+
+    Please note that asterisks and exclamation marks might be special characters in
+    your shell, so you might have to escape them. When in doubt about escaping, put
+    quotes around your entire entry:
 
         jrnl "saturday at 2am: *Then I was like 'That log had a child!'" """
 
@@ -216,6 +218,12 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         dest="template",
         help="Path to template file. Can be a local path, absolute path, or a path "
         "relative to $XDG_DATA_HOME/jrnl/templates/",
+    )
+    composing.add_argument(
+        "--write-draft",
+        dest="write_draft",
+        action="store_true",
+        help="Mark the new entry as a draft (marked with ! in title). Alias: --draft",
     )
 
     read_msg = (
@@ -290,6 +298,13 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         help="Show only entries that have at least one tag",
     )
     reading.add_argument(
+        "-draft",
+        "--draft",
+        dest="draft",
+        action="store_true",
+        help="Show only draft entries (marked with !). When writing, marks entry as draft.",
+    )
+    reading.add_argument(
         "-n",
         dest="limit",
         default=None,
@@ -312,6 +327,12 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
             "starred or tagged entries respectively."
         ),
     )
+    reading.add_argument(
+        "--inbox",
+        dest="inbox",
+        action="store_true",
+        help="Show all draft entries in the inbox, with filtering by date, tags, and journal",
+    )
 
     search_options_msg = (
         "    "  # Preserves indentation
@@ -333,6 +354,13 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         dest="delete",
         action="store_true",
         help="Interactively deletes selected entries",
+    )
+    exporting.add_argument(
+        "--formalize",
+        "--archive",
+        dest="formalize",
+        action="store_true",
+        help="Interactively archives selected draft entries (removes draft status)",
     )
     exporting.add_argument(
         "--change-time",

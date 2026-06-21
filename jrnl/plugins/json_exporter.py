@@ -27,6 +27,7 @@ class JSONExporter(TextExporter):
             "time": entry.date.strftime("%H:%M"),
             "tags": entry.tags,
             "starred": entry.starred,
+            "draft": entry.draft,
         }
         if hasattr(entry, "uuid"):
             entry_dict["uuid"] = entry.uuid

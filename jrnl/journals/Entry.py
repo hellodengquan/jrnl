@@ -22,6 +22,7 @@ class Entry:
         date: datetime.datetime | None = None,
         text: str = "",
         starred: bool = False,
+        draft: bool = False,
     ):
         self.journal = journal  # Reference to journal mainly to access its config
         self.date = date or datetime.datetime.now()
@@ -30,6 +31,7 @@ class Entry:
         self._body = None
         self._tags = None
         self.starred = starred
+        self.draft = draft
         self.modified = False
 
     @property
@@ -39,9 +41,15 @@ class Entry:
     def _parse_text(self):
         raw_text = self.text
         lines = raw_text.splitlines()
-        if lines and lines[0].strip().endswith("*"):
-            self.starred = True
-            raw_text = lines[0].strip("\n *") + "\n" + "\n".join(lines[1:])
+        if lines:
+            first_line_stripped = lines[0].strip()
+            if first_line_stripped.endswith("*"):
+                self.starred = True
+                first_line_stripped = first_line_stripped.rstrip("*").rstrip()
+            if first_line_stripped.endswith("!"):
+                self.draft = True
+                first_line_stripped = first_line_stripped.rstrip("!").rstrip()
+            raw_text = first_line_stripped + "\n" + "\n".join(lines[1:])
         self._title, self._body = split_title(raw_text)
         if self._tags is None:
             self._tags = list(self._parse_tags())
@@ -93,6 +101,8 @@ class Entry:
         title = "[{}] {}".format(date_str, self.title.rstrip("\n "))
         if self.starred:
             title += " *"
+        if self.draft:
+            title += " !"
         return "{title}{sep}{body}\n".format(
             title=title,
             sep="\n" if self.body.rstrip("\n ") else "",
@@ -113,6 +123,10 @@ class Entry:
             self.journal.config["colors"]["date"],
             bold=True,
         )
+
+        if self.draft:
+            draft_label = colorize("[draft]", "YELLOW", bold=True) + " "
+            date_str = draft_label + date_str
 
         if not short and self.journal.config["linewrap"]:
             columns = self.journal.config["linewrap"]
@@ -195,6 +209,7 @@ class Entry:
             or self.body.rstrip() != other.body.rstrip()
             or self.date != other.date
             or self.starred != other.starred
+            or self.draft != other.draft
         ):
             return False
         return True

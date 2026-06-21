@@ -97,14 +97,15 @@ def run(args: "Namespace"):
 def _perform_actions_on_search_results(**kwargs):
     args = kwargs["args"]
 
-    # Perform actions (if needed)
     if args.change_time:
         _change_time_search_results(**kwargs)
 
     if args.delete:
         _delete_search_results(**kwargs)
 
-    # open results in editor (if `--edit` was used)
+    if args.formalize:
+        _formalize_search_results(**kwargs)
+
     if args.edit:
         _edit_search_results(**kwargs)
 
@@ -120,6 +121,10 @@ def _is_append_mode(args: "Namespace", config: dict, **kwargs) -> bool:
 
     # Might be writing and want to move to editor part of the way through
     if args.edit and args.text:
+        append_mode = True
+
+    # Might be writing a draft entry
+    if getattr(args, 'draft', False) and args.text:
         append_mode = True
 
     # If the text is entirely tags, then we are also searching (not writing)
@@ -165,11 +170,17 @@ def append_mode(args: "Namespace", config: dict, journal: "Journal", **kwargs) -
     logging.debug(
         f"Append mode: appending raw text to journal '{args.journal_name}': {raw}"
     )
-    journal.new_entry(raw)
+    is_draft = getattr(args, 'draft', False) or getattr(args, 'write_draft', False)
+    journal.new_entry(raw, draft=is_draft)
     if args.journal_name != DEFAULT_JOURNAL_KEY:
+        msg_text = (
+            MsgText.DraftEntryAdded
+            if is_draft
+            else MsgText.JournalEntryAdded
+        )
         print_msg(
             Message(
-                MsgText.JournalEntryAdded,
+                msg_text,
                 MsgStyle.NORMAL,
                 {"journal_name": args.journal_name},
             )
@@ -202,7 +213,9 @@ def search_mode(args: "Namespace", journal: "Journal", **kwargs) -> None:
     """
     logging.debug("Search mode: starting")
 
-    # If no search args, then return all results (don't filter anything)
+    if getattr(args, 'inbox', False):
+        args.draft = True
+
     if not _has_search_args(args) and not _has_display_args(args) and not args.text:
         logging.debug("Search mode: has no search args")
         return
@@ -244,6 +257,8 @@ def _filter_journal_entries(args: "Namespace", journal: "Journal", **kwargs) -> 
         exclude=args.excluded,
         exclude_starred=args.exclude_starred,
         exclude_tagged=args.exclude_tagged,
+        exclude_draft=args.exclude_draft,
+        draft=args.draft,
         contains=args.contains,
     )
     journal.limit(args.limit)
@@ -256,6 +271,8 @@ def _print_entries_found_count(count: int, args: "Namespace") -> None:
             print_msg(Message(MsgText.NothingToModify, MsgStyle.WARNING))
         elif args.delete:
             print_msg(Message(MsgText.NothingToDelete, MsgStyle.WARNING))
+        elif args.formalize:
+            print_msg(Message(MsgText.NothingToFormalize, MsgStyle.WARNING))
         else:
             print_msg(Message(MsgText.NoEntriesFound, MsgStyle.NORMAL))
         return
@@ -385,6 +402,29 @@ def _change_time_search_results(
         journal.write()
 
 
+def _formalize_search_results(
+    journal: "Journal",
+    old_entries: list["Entry"],
+    **kwargs,
+) -> None:
+    entries_to_formalize = journal.prompt_action_entries(MsgText.FormalizeEntryQuestion)
+
+    journal.entries = old_entries
+
+    if entries_to_formalize:
+        journal.formalize_entries(entries_to_formalize)
+
+        count = len(entries_to_formalize)
+        msg_text = (
+            MsgText.EntryFormalizedSingular
+            if count == 1
+            else MsgText.EntryFormalizedPlural
+        )
+        print_msg(Message(msg_text, MsgStyle.NORMAL, {"num": count}))
+
+        journal.write()
+
+
 def _display_search_results(args: "Namespace", journal: "Journal", **kwargs) -> None:
     if len(journal) == 0:
         return
@@ -417,6 +457,7 @@ def _has_search_args(args: "Namespace") -> bool:
             args.excluded,
             args.exclude_starred,
             args.exclude_tagged,
+            args.exclude_draft,
             args.end_date,
             args.today_in_history,
             args.month,
@@ -425,8 +466,10 @@ def _has_search_args(args: "Namespace") -> bool:
             args.limit,
             args.on_date,
             args.starred,
+            args.draft,
             args.start_date,
-            args.strict,  # -and
+            args.strict,
+            args.inbox,
         )
     )
 
@@ -437,6 +480,7 @@ def _has_action_args(args: "Namespace") -> bool:
             args.change_time,
             args.delete,
             args.edit,
+            args.formalize,
         )
     )
 

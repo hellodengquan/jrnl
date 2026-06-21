@@ -250,6 +250,16 @@ class MsgText(Enum):
     EntryFoundCountSingular = "{num} entry found"
     EntryFoundCountPlural = "{num} entries found"
 
+    # --- Inbox --- #
+    FormalizeEntryQuestion = "Formalize entry (remove draft status) '{entry_title}'?"
+    InboxEmpty = "Inbox is empty - no draft entries found"
+    DraftEntryAdded = "Draft entry added to {journal_name} journal"
+    EntryFormalizedSingular = "{num} entry formalized"
+    EntryFormalizedPlural = "{num} entries formalized"
+    NothingToFormalize = """
+        No entries to formalize, because the search returned no results
+        """
+
     # --- Formats --- #
     HeadingsPastH6 = """
         Headings increased past H6 on export - {date} {title}
