@@ -5,6 +5,7 @@ import json
 from typing import TYPE_CHECKING
 
 from jrnl.plugins.text_exporter import TextExporter
+from jrnl.plugins.util import get_entry_draft_status
 from jrnl.plugins.util import get_tags_count
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ class JSONExporter(TextExporter):
             "time": entry.date.strftime("%H:%M"),
             "tags": entry.tags,
             "starred": entry.starred,
-            "draft": entry.draft,
+            "draft": get_entry_draft_status(entry),
         }
         if hasattr(entry, "uuid"):
             entry_dict["uuid"] = entry.uuid

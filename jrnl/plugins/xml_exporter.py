@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from xml.dom import minidom
 
 from jrnl.plugins.json_exporter import JSONExporter
+from jrnl.plugins.util import get_entry_draft_status
 from jrnl.plugins.util import get_tags_count
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ class XMLExporter(JSONExporter):
         if hasattr(entry, "uuid"):
             entry_el.setAttribute("uuid", entry.uuid)
         entry_el.setAttribute("starred", str(entry.starred))
-        entry_el.setAttribute("draft", str(entry.draft))
+        entry_el.setAttribute("draft", str(get_entry_draft_status(entry)))
         tags = entry.tags
         for tag in tags:
             tag_el = doc.createElement("tag")

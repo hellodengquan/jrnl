@@ -7,6 +7,7 @@ import textwrap
 
 from jrnl.commands import postconfig_decrypt
 from jrnl.commands import postconfig_encrypt
+from jrnl.commands import postconfig_formalize
 from jrnl.commands import postconfig_import
 from jrnl.commands import postconfig_list
 from jrnl.commands import preconfig_diagnostic
@@ -184,6 +185,19 @@ def parse_args(args: list[str] = []) -> argparse.Namespace:
         default=None,
     )
     standalone.add_argument("-i", dest="filename", help=argparse.SUPPRESS)
+    standalone.add_argument(
+        "--formalize-drafts",
+        action="store_const",
+        const=postconfig_formalize,
+        dest="postconfig_cmd",
+        help="""
+        Formalize all draft entries in the selected journal by removing their draft status.
+
+        This is a standalone command that processes all drafts at once without
+        requiring a search. For interactive formalization of specific entries,
+        use --formalize or --archive with search filters.
+        """,
+    )
 
     compose_msg = """
     To add a new entry into your journal, simply write it on the command line:

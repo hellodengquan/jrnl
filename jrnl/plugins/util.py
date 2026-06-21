@@ -5,7 +5,19 @@ from collections import Counter
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from jrnl.journals import Entry
     from jrnl.journals import Journal
+
+
+def get_entry_draft_status(entry: "Entry") -> bool:
+    """Returns the draft status of an entry. Centralized so all exporters
+    reference draft status through a single function."""
+    return entry.draft
+
+
+def format_draft_marker(entry: "Entry") -> str:
+    """Returns a string marker for draft status, suitable for text-based exports."""
+    return "!" if entry.draft else ""
 
 
 class NestedDict(dict):

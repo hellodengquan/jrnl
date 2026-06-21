@@ -68,6 +68,34 @@ def postconfig_list(args: argparse.Namespace, config: dict, **_) -> int:
 
 
 @cmd_requires_valid_journal_name
+def postconfig_formalize(
+    args: argparse.Namespace, config: dict, **_
+) -> int:
+    """Formalize all draft entries in the specified journal by removing their draft status."""
+    from jrnl.journals import open_journal
+
+    journal = open_journal(args.journal_name, config)
+
+    draft_entries = [e for e in journal.entries if e.draft]
+    if not draft_entries:
+        print_msg(Message(MsgText.NothingToFormalize, MsgStyle.WARNING))
+        return 0
+
+    journal.formalize_entries(draft_entries)
+    journal.write()
+
+    count = len(draft_entries)
+    msg_text = (
+        MsgText.EntryFormalizedSingular
+        if count == 1
+        else MsgText.EntryFormalizedPlural
+    )
+    print_msg(Message(msg_text, MsgStyle.NORMAL, {"num": count}))
+
+    return 0
+
+
+@cmd_requires_valid_journal_name
 def postconfig_import(args: argparse.Namespace, config: dict, **_) -> int:
     from jrnl.journals import open_journal
     from jrnl.plugins import get_importer

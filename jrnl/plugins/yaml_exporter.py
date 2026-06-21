@@ -11,6 +11,7 @@ from jrnl.messages import MsgStyle
 from jrnl.messages import MsgText
 from jrnl.output import print_msg
 from jrnl.plugins.text_exporter import TextExporter
+from jrnl.plugins.util import get_entry_draft_status
 
 if TYPE_CHECKING:
     from jrnl.journals import Entry
@@ -131,7 +132,7 @@ class YAMLExporter(TextExporter):
             date=date_str,
             title=entry.title,
             starred=entry.starred,
-            draft=entry.draft,
+            draft=get_entry_draft_status(entry),
             tags=", ".join([tag[1:] for tag in entry.tags]),
             dayone=dayone_attributes,
             body=spacebody,
